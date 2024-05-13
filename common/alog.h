@@ -61,6 +61,29 @@ int log_output_file_close();
 #define LOG_BUFFER_SIZE 4096
 #endif
 
+#define ALOG_COLOR_RESET "\033[0m"
+#define ALOG_COLOR_BLACK "\033[30m"
+#define ALOG_COLOR_RED "\033[31m"
+#define ALOG_COLOR_GREEN "\033[32m"
+#define ALOG_COLOR_YELLOW "\033[33m"
+#define ALOG_COLOR_BLUE "\033[34m"
+#define ALOG_COLOR_MAGENTA "\033[35m"
+#define ALOG_COLOR_CYAN "\033[36m"
+#define ALOG_COLOR_LIGHTGRAY "\033[37m"
+#define ALOG_COLOR_DARKGRAY "\033[90m"
+#define ALOG_COLOR_LIGHTRED "\033[91m"
+#define ALOG_COLOR_LIGHTGREEN "\033[92m"
+#define ALOG_COLOR_LIGHTYELLOW "\033[93m"
+#define ALOG_COLOR_LIGHTBLUE "\033[94m"
+#define ALOG_COLOR_LIGHTMAGENTA "\033[95m"
+#define ALOG_COLOR_LIGHTCYAN "\033[96m"
+#define ALOG_COLOR_LIGHTWHITE "\033[97m"
+
+void alog_set_level_prefix(int level, const char* prefix);
+void alog_set_level_suffix(int level, const char* suffix);
+const char* alog_get_level_prefix(int level);
+const char* alog_get_level_suffix(int level);
+
 // wrapper for an integer, together with format information
 struct ALogInteger
 {
@@ -415,8 +438,14 @@ template<typename FMT, typename...Ts> inline
 STFMTLogBuffer __log__(int level, ILogOutput* output, const Prologue& prolog, FMT fmt, Ts&&...xs)
 {
     STFMTLogBuffer log(output);
+    auto prefix = alog_get_level_prefix(level);
+    auto suffix = alog_get_level_suffix(level);
+    if (prefix)
+        log << prefix;
     log << prolog;
-    log.print_fmt(fmt, std::forward<Ts>(xs)..., '\n');
+    log.print_fmt(fmt, std::forward<Ts>(xs)...);
+    if (suffix)
+        log << suffix;
     log.level = level;
     return log;
 }
@@ -724,3 +753,36 @@ struct __limit_first_n_every_t {
         using __limit_type = __limit_first_n_every_t<N, T>; \
         __LOG_WITH_LIMIT(__limit_type, __VA_ARGS__);        \
     })
+
+inline void alog_preset_level_color() {
+    alog_set_level_prefix(ALOG_DEBUG, ALOG_COLOR_DARKGRAY);
+    alog_set_level_prefix(ALOG_INFO, ALOG_COLOR_LIGHTGRAY);
+    alog_set_level_prefix(ALOG_WARN, ALOG_COLOR_YELLOW);
+    alog_set_level_prefix(ALOG_ERROR, ALOG_COLOR_RED);
+    alog_set_level_prefix(ALOG_FATAL, ALOG_COLOR_RED);
+    alog_set_level_prefix(ALOG_TEMP, ALOG_COLOR_CYAN);
+    alog_set_level_prefix(ALOG_AUDIT, ALOG_COLOR_GREEN);
+    alog_set_level_suffix(ALOG_DEBUG, ALOG_COLOR_RESET);
+    alog_set_level_suffix(ALOG_INFO, ALOG_COLOR_RESET);
+    alog_set_level_suffix(ALOG_WARN, ALOG_COLOR_RESET);
+    alog_set_level_suffix(ALOG_ERROR, ALOG_COLOR_RESET);
+    alog_set_level_suffix(ALOG_FATAL, ALOG_COLOR_RESET);
+    alog_set_level_suffix(ALOG_TEMP, ALOG_COLOR_RESET);
+    alog_set_level_suffix(ALOG_AUDIT, ALOG_COLOR_RESET);
+}
+inline void alog_clear_level_color() {
+    alog_set_level_prefix(ALOG_DEBUG, nullptr);
+    alog_set_level_prefix(ALOG_INFO, nullptr);
+    alog_set_level_prefix(ALOG_WARN, nullptr);
+    alog_set_level_prefix(ALOG_ERROR, nullptr);
+    alog_set_level_prefix(ALOG_FATAL, nullptr);
+    alog_set_level_prefix(ALOG_TEMP, nullptr);
+    alog_set_level_prefix(ALOG_AUDIT, nullptr);
+    alog_set_level_suffix(ALOG_DEBUG, nullptr);
+    alog_set_level_suffix(ALOG_INFO, nullptr);
+    alog_set_level_suffix(ALOG_WARN, nullptr);
+    alog_set_level_suffix(ALOG_ERROR, nullptr);
+    alog_set_level_suffix(ALOG_FATAL, nullptr);
+    alog_set_level_suffix(ALOG_TEMP, nullptr);
+    alog_set_level_suffix(ALOG_AUDIT, nullptr);
+}

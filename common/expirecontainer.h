@@ -389,12 +389,6 @@ public:
         return (ItemPtr)Base::ref_acquire(Item(key), _ctor, failure_cooldown);
     }
 
-<<<<<<< HEAD
-    template <typename Constructor>
-    decltype(auto) acquire(const InterfaceKey& key, const Constructor& ctor,
-                           uint64_t failure_cooldown = 0) {
-        return Item::get_content(ref_acquire(key, ctor, failure_cooldown));
-=======
     ValPtr ref_release(ItemPtr item, bool recycle = false, bool destroy = true) {
         return (ValPtr)Base::ref_release(item, recycle, destroy);
     }
@@ -408,7 +402,6 @@ public:
 
     ValPtr release(const InterfaceKey& key, bool recycle = false, bool destroy = true) {
         return (ValPtr)Base::release(Item(key), recycle, destroy);
->>>>>>> d508ae8 (Pick change of expire containers)
     }
 
     using iterator = typename ExpireContainerBase::TypedIterator<Item>;
@@ -418,10 +411,6 @@ public:
         return Base::find(KeyedItem(key));
     }
 
-<<<<<<< HEAD
-    // Borrow has defined a bool operator to indicate if ref_acquire is succeeded.
-    // Users should take care of the error handling if (!borrow_result)
-=======
     class Borrow {
         ObjectCache* _oc;
         ItemPtr _ref;
@@ -467,7 +456,6 @@ public:
         }
     };
 
->>>>>>> d508ae8 (Pick change of expire containers)
     template <typename Constructor>
     Borrow borrow(const typename Item::InterfaceKey& key,
                   const Constructor& ctor, uint64_t failure_cooldown = 0) {

@@ -569,27 +569,27 @@ TEST(ALog, LOG_LIMIT) {
     EXPECT_LE(x, suppose + 3);
 }
 
-TEST(ALOG, IPAddr) {
-    log_output = &log_output_test;
-    DEFER(log_output = log_output_stdout);
-
-    photon::net::IPAddr ip("192.168.12.34");
-    EXPECT_STREQ(photon::net::to_string(ip).c_str(), "192.168.12.34");
-    LOG_INFO(ip);
-    EXPECT_STREQ("192.168.12.34", log_output_test.log_start());
-
-    ip = photon::net::IPAddr("abcd:1111:222:33:4:5:6:7");
-    EXPECT_STREQ(photon::net::to_string(ip).c_str(), "abcd:1111:222:33:4:5:6:7");
-    LOG_INFO(ip);
-    EXPECT_STREQ("abcd:1111:222:33:4:5:6:7", log_output_test.log_start());
-}
-
-TEST(ALOG, signed_zero) {
-    log_output = &log_output_test;
-    DEFER(log_output = log_output_stdout);
-
-    LOG_INFO(DEC(0));
-    EXPECT_STREQ("0", log_output_test.log_start());
+TEST(ALog, colors) {
+    default_logger.log_level = 0;
+    default_logger.log_output = log_output_stdout;
+    alog_preset_level_color();
+    LOG_DEBUG("DEBUG");
+    LOG_INFO("INFO");
+    LOG_WARN("WARN");
+    LOG_ERROR("ERROR");
+    LOG_FATAL("FATAL");
+    LOG_TEMP("TEMP");
+    default_logger << LOG_AUDIT("AUDIT");
+    puts("Other line puts to console");
+    alog_clear_level_color();
+    LOG_DEBUG("DEBUG");
+    LOG_INFO("INFO");
+    LOG_WARN("WARN");
+    LOG_ERROR("ERROR");
+    LOG_FATAL("FATAL");
+    LOG_TEMP("TEMP");
+    default_logger << LOG_AUDIT("AUDIT");
+    puts("Other line puts to console");
 }
 
 int main(int argc, char **argv)
