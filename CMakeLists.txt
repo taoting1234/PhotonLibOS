@@ -189,8 +189,7 @@ if (CMAKE_SYSTEM_NAME MATCHES "Linux")
             FetchContent_Declare(
                     liburing
                     # GIT_REPOSITORY https://github.com/axboe/liburing.git
-                    # GIT_REPOSITORY https://gitee.com/mirrors_axboe/liburing.git
-                    GIT_REPOSITORY git@gitlab.alibaba-inc.com:ofs/liburing.git
+                    GIT_REPOSITORY https://gitee.com/mirrors_axboe/liburing.git
                     GIT_TAG liburing-2.3
                     UPDATE_COMMAND ./configure
             )
