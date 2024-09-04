@@ -175,6 +175,74 @@ add_subdirectory(third_party)
 if (PHOTON_ENABLE_ECOSYSTEM)
     add_subdirectory(ecosystem)
 endif ()
+# Find packages either from cmake-modules or external packages(in CMake dir)
+if (CMAKE_SYSTEM_NAME MATCHES "Linux")
+    find_package(aio REQUIRED)
+    if (ENABLE_FUSE)
+        find_package(fuse REQUIRED)
+    endif ()
+    if (ENABLE_URING)
+        find_package(uring)
+        if (NOT URING_FOUND)
+            message("liburing not found, fetch source and compile it")
+            # Fetch liburing
+            FetchContent_Declare(
+                    liburing
+                    # GIT_REPOSITORY https://github.com/axboe/liburing.git
+                    # GIT_REPOSITORY https://gitee.com/mirrors_axboe/liburing.git
+                    GIT_REPOSITORY git@gitlab.alibaba-inc.com:ofs/liburing.git
+                    GIT_TAG liburing-2.3
+                    UPDATE_COMMAND ./configure
+            )
+            FetchContent_MakeAvailable(liburing)
+            set(liburing_include_dir ${liburing_SOURCE_DIR}/src/include)
+            add_library(
+                    uring
+                    STATIC
+                    ${liburing_SOURCE_DIR}/src/setup.c
+                    ${liburing_SOURCE_DIR}/src/queue.c
+                    ${liburing_SOURCE_DIR}/src/register.c
+                    ${liburing_SOURCE_DIR}/src/syscall.c
+            )
+            # CMake didn't provide an abstraction of optimization level for now.
+            # When multiple -O options appear, only the last one is effective
+            target_compile_options(uring PRIVATE -O3 -Wall -Wextra -fno-stack-protector -Wno-unused-parameter -Wno-sign-compare)
+            target_compile_definitions(uring PRIVATE _GNU_SOURCE LIBURING_INTERNAL)
+            target_include_directories(uring PRIVATE ${liburing_include_dir})
+        else()
+            message("liburing found")
+        endif()
+    endif ()
+endif()
+find_package(OpenSSL REQUIRED)
+find_package(ZLIB REQUIRED)
+find_package(CURL REQUIRED)
+if (ENABLE_SASL)
+    find_package(gsasl REQUIRED)
+endif ()
+if (ENABLE_EXTFS)
+    find_package(e2fs REQUIRED)
+endif()
+
+if (FETCH_GTEST_GFLAGS_SOURCE)
+    FetchContent_Declare(
+            gflags
+            # GIT_REPOSITORY https://github.com/gflags/gflags.git
+            # GIT_REPOSITORY https://gitee.com/mirrors/gflags.git
+            GIT_REPOSITORY git@gitlab.alibaba-inc.com:ofs/gflags.git
+            GIT_TAG v2.2.2
+            GIT_SUBMODULES ""
+    )
+    FetchContent_MakeAvailable(gflags)
+    FetchContent_Declare(
+            googletest
+            # GIT_REPOSITORY https://github.com/google/googletest.git
+            # GIT_REPOSITORY https://gitee.com/mirrors/googletest.git
+            GIT_REPOSITORY git@gitlab.alibaba-inc.com:ofs/googletest.git
+            GIT_TAG release-1.12.1
+    )
+    FetchContent_MakeAvailable(googletest)
+endif()
 
 # Compile photon objects
 file(GLOB PHOTON_SRC RELATIVE "${PROJECT_SOURCE_DIR}"
