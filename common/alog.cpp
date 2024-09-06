@@ -517,3 +517,14 @@ LogBuffer& operator << (LogBuffer& log, ERRNO e) {
     auto no = e.no ? e.no : errno;
     return log.printf("errno=", no, '(', strerror(no), ')');
 }
+void alog_set_level_suffix(int level, const char* suffix) {
+    prologue_suffix[level] = suffix;
+}
+
+const char* alog_get_level_prefix(int level) {
+    return prologue_prefix[level];
+}
+
+const char* alog_get_level_suffix(int level) {
+    return prologue_suffix[level];
+}
