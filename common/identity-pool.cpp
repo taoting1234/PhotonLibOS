@@ -98,7 +98,8 @@ struct ScalePoolController {
     photon::Timer timer;
     intrusive_list<IdentityPoolBase> entries;
     ScalePoolController(uint64_t interval = 1000UL * 1000)
-        : timer(interval, {this, &ScalePoolController::scan_pool_scale}) {}
+        : timer(interval, {this, &ScalePoolController::scan_pool_scale}, true,
+                8UL * 1024 * 1024) {}
 
     ~ScalePoolController() { }
     photon::mutex mutex;
