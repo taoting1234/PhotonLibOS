@@ -35,6 +35,7 @@ target_link_libraries(test-tls-order-photon PRIVATE photon_shared)
 add_test(NAME test-tls-order-photon COMMAND $<TARGET_FILE:test-tls-order-photon>)
 
 add_executable(test-lib-data test-lib-data.cpp)
+
 target_link_libraries(test-lib-data PRIVATE photon_shared)
 add_test(NAME test-lib-data COMMAND $<TARGET_FILE:test-lib-data>)
 
@@ -45,3 +46,7 @@ add_test(NAME test-multi-vcpu-locking COMMAND $<TARGET_FILE:test-multi-vcpu-lock
 add_executable(test-pooled-stack-allocator test-pooled-stack-allocator.cpp)
 target_link_libraries(test-pooled-stack-allocator PRIVATE photon_shared)
 add_test(NAME test-pooled-stack-allocator COMMAND $<TARGET_FILE:test-pooled-stack-allocator>)
+
+add_executable(test-lfstextend test-lfsextend.cpp)
+target_link_libraries(test-lfstextend PRIVATE photon_static ${testing_libs})
+add_test(NAME test-lfstextend COMMAND $<TARGET_FILE:test-lfstextend>)
