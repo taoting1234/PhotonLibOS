@@ -1862,6 +1862,7 @@ R"(
                     last_idle = now;
                     vcpu->master_event_engine->wait_and_fire_events(0);
                 }
+                resume_threads();
             }
             if (vcpu->state == states::DONE)
                 break;
