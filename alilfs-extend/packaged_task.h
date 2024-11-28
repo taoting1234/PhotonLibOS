@@ -62,7 +62,6 @@ public:
 
     bool valid() const noexcept { return _fut.valid(); }
     void wait() const {
-        if (!valid()) throw std::future_error(std::future_errc::no_state);
         if (_fut.wait_for(std::chrono::microseconds(0)) ==
             std::future_status::ready)
             return;
@@ -73,7 +72,6 @@ public:
     template <class Rep, class Period>
     std::future_status wait_for(
         const std::chrono::duration<Rep, Period>& timeout_duration) const {
-        if (!valid()) throw std::future_error(std::future_errc::no_state);
         if (_fut.wait_for(std::chrono::microseconds(0)) ==
             std::future_status::ready)
             return std::future_status::ready;
@@ -89,7 +87,6 @@ public:
     template <class Clock, class Duration>
     std::future_status wait_until(
         const std::chrono::time_point<Clock, Duration>& timeout_time) const {
-        if (!valid()) throw std::future_error(std::future_errc::no_state);
         if (_fut.wait_for(std::chrono::microseconds(0)) ==
             std::future_status::ready)
             return std::future_status::ready;
@@ -163,7 +160,7 @@ void swap(photon_lfsextend::packaged_task<R(Args...)>& lhs,
 
 template <typename R>
 void swap(photon_lfsextend::promise<R>& lhs,
-          photon_lfsextend::future<R>& rhs) noexcept {
+          photon_lfsextend::promise<R>& rhs) noexcept {
     lhs.swap(rhs);
 }
 }  // namespace std
