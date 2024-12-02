@@ -106,7 +106,7 @@ public:
 
 template <typename R>
 future<R> promise<R>::get_future() {
-    return {_prom.get_future(), _sem};
+    return future<R>(_prom.get_future(), _sem);
 }
 
 template <typename Signature>
