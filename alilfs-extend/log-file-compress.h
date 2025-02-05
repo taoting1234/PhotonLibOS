@@ -151,7 +151,7 @@ public:
                 rename(fn0, fn1);
                 if (last_generation == 1) {
                     std::string fn(fn1);
-                    system(("gzip -f " + fn).c_str());
+                    system(("gzip -f " + fn + " &").c_str());
                 }
             }
             last_generation--;
