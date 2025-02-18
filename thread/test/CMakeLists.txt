@@ -50,3 +50,11 @@ add_test(NAME test-pooled-stack-allocator COMMAND $<TARGET_FILE:test-pooled-stac
 add_executable(test-lfstextend test-lfsextend.cpp)
 target_link_libraries(test-lfstextend PRIVATE photon_static ${testing_libs})
 add_test(NAME test-lfstextend COMMAND $<TARGET_FILE:test-lfstextend>)
+
+if (PHOTON_ALL_ASAN)
+    add_executable(test-asan test-asan.cpp)
+    # target_compile_definitions(test-asan PRIVATE -fsanitize=address)
+    # target_link_options(test-asan PRIVATE -fsanitize=address -static-libasan)
+    target_link_libraries(test-asan PRIVATE photon_static ${testing_libs})
+    add_test(NAME test-asan COMMAND $<TARGET_FILE:test-asan>)
+endif()

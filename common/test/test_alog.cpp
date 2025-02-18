@@ -502,10 +502,18 @@ void segfault() {
     *pc = 'w'; //this must trigger sigfault
 }
 
+#if defined(__has_feature)
+#   if __has_feature(address_sanitizer) // for clang
+#       define __SANITIZE_ADDRESS__ // GCC already sets this
+#   endif
+#endif
+
+#ifndef __SANITIZE_ADDRESS__
 TEST(ALog, null_to_pchar) {
     EXPECT_EXIT((segfault(), exit(0)), ::testing::KilledBySignal(SIGSEGV), ".*");
     EXPECT_EXIT((testnull_func(), exit(0)), testing::ExitedWithCode(0),".*");
 }
+#endif
 
 TEST(ALog, throttled_log) {
     //update time
@@ -590,5 +598,7 @@ int main(int argc, char **argv)
     photon::vcpu_init();
     DEFER(photon::vcpu_fini());
     ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
+    default_logger.log_level = 0;
+    int ret = RUN_ALL_TESTS();
+    LOG_ERROR_RETURN(0, ret, VALUE(ret));
 }

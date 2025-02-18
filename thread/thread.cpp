@@ -748,6 +748,7 @@ R"(
     inline void switch_context(thread* from, thread* to) {
         ASAN_SWITCH(to);
         prepare_switch(from, to);
+        ASAN_SWITCH(from, to)
         auto _t_ = to->stack.pointer_ref();
         register auto f asm("rsi") = from->stack.pointer_ref();
         register auto t asm("rdi") = _t_;
@@ -762,6 +763,7 @@ R"(
                                      void (*defer)(void*), void* arg) {
         ASAN_SWITCH(to);
         prepare_switch(from, to);
+        ASAN_SWITCH(from, to)
         auto _t_ = to->stack.pointer_ref();
         register auto f asm("rcx") = from->stack.pointer_ref();
         register auto t asm("rdx") = _t_;
@@ -876,7 +878,7 @@ R"(
 
 DEF_ASM_FUNC(_photon_thread_stub)
 R"(
-        bl _asan_start           //; asan_start()
+        blr _asan_start
         ldp x0, x1, [x29, #0x40] //; load arg, start into x0, x1
         str xzr, [x29, #0x40]    //; set arg as 0
         blr x1                   //; start(x0)
@@ -1187,7 +1189,6 @@ R"(
         LOG_WARN("Timestamp updater not launch or already stopped");
         return -1;
     }
-
     static int resume_threads()
     {
         int count = 0;
@@ -1965,6 +1966,7 @@ R"(
         th->vcpu = (vcpu_t*)ptr;
         th->state = states::RUNNING;
         th->init_main_thread_stack();
+        th->buf = nullptr;
         auto vcpu = new (ptr) vcpu_t;
         vcpu->idle_worker = thread_create(&idler, nullptr);
         thread_enable_join(vcpu->idle_worker);
