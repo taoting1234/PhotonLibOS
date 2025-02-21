@@ -748,7 +748,6 @@ R"(
     inline void switch_context(thread* from, thread* to) {
         ASAN_SWITCH(to);
         prepare_switch(from, to);
-        ASAN_SWITCH(from, to)
         auto _t_ = to->stack.pointer_ref();
         register auto f asm("rsi") = from->stack.pointer_ref();
         register auto t asm("rdi") = _t_;
@@ -763,7 +762,6 @@ R"(
                                      void (*defer)(void*), void* arg) {
         ASAN_SWITCH(to);
         prepare_switch(from, to);
-        ASAN_SWITCH(from, to)
         auto _t_ = to->stack.pointer_ref();
         register auto f asm("rcx") = from->stack.pointer_ref();
         register auto t asm("rdx") = _t_;
