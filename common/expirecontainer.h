@@ -389,19 +389,10 @@ public:
         return (ItemPtr)Base::ref_acquire(Item(key), _ctor, failure_cooldown);
     }
 
-    ValPtr ref_release(ItemPtr item, bool recycle = false, bool destroy = true) {
-        return (ValPtr)Base::ref_release(item, recycle, destroy);
-    }
-
     template <typename Constructor>
-    ValPtr acquire(const InterfaceKey& key, const Constructor& ctor,
-                   uint64_t failure_cooldown = 0) {
-        auto item = ref_acquire(key, ctor, failure_cooldown);
-        return (ValPtr)(item ? item->_obj : nullptr);
-    }
-
-    ValPtr release(const InterfaceKey& key, bool recycle = false, bool destroy = true) {
-        return (ValPtr)Base::release(Item(key), recycle, destroy);
+    decltype(auto) acquire(const InterfaceKey& key, const Constructor& ctor,
+                           uint64_t failure_cooldown = 0) {
+        return Item::get_content(ref_acquire(key, ctor, failure_cooldown));
     }
 
     using iterator = typename ExpireContainerBase::TypedIterator<Item>;
@@ -411,51 +402,8 @@ public:
         return Base::find(KeyedItem(key));
     }
 
-    class Borrow {
-        ObjectCache* _oc;
-        ItemPtr _ref;
-        bool _recycle = false;
-        bool _moveout = false;
-
-    public:
-        Borrow(ObjectCache* oc, ItemPtr ref, bool recycle)
-            : _oc(oc), _ref(ref), _recycle(recycle) {}
-        ~Borrow() {
-            if (_ref) _oc->ref_release(_ref, _recycle, !_moveout);
-        }
-
-        Borrow() = delete;
-        Borrow(const Borrow&) = delete;
-        Borrow(Borrow&& rhs) { move(std::move(rhs)); }
-        void operator=(const Borrow&) = delete;
-        void operator=(Borrow&& rhs) { move(std::move(rhs)); }
-
-        ValEntity& operator*() { return *get_ptr(); }
-
-        ValPtr operator->() { return get_ptr(); }
-
-        operator bool() const { return _ref; }
-
-        bool recycle() const { return _recycle; }
-
-        bool recycle(bool x) { return _recycle = x; }
-
-        bool moved() const { return _moveout; }
-
-        bool moveout(bool x) { return _moveout = x; }
-
-    private:
-        ValPtr get_ptr() { return (ValPtr)_ref->_obj; }
-
-        void move(Borrow&& rhs) {
-            _oc = rhs._oc;
-            rhs._oc = nullptr;
-            _ref = rhs._ref;
-            rhs._ref = nullptr;
-            _recycle = rhs._recycle;
-        }
-    };
-
+    // Borrow has defined a bool operator to indicate if ref_acquire is succeeded.
+    // Users should take care of the error handling if (!borrow_result)
     template <typename Constructor>
     Borrow borrow(const typename Item::InterfaceKey& key,
                   const Constructor& ctor, uint64_t failure_cooldown = 0) {

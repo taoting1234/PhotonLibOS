@@ -484,17 +484,6 @@ int log_output_file_close() {
     return 0;
 }
 
-namespace photon
-{
-    struct thread;
-    extern __thread thread* CURRENT;
-}
-
-static inline ALogInteger DEC_W2P0(uint64_t x)
-{
-    return DEC(x).width(2).padding('0');
-}
-
 LogBuffer& operator << (LogBuffer& log, const Prologue& pro)
 {
 #ifdef LOG_BENCHMARK
@@ -527,22 +516,4 @@ LogBuffer& operator << (LogBuffer& log, const Prologue& pro)
 LogBuffer& operator << (LogBuffer& log, ERRNO e) {
     auto no = e.no ? e.no : errno;
     return log.printf("errno=", no, '(', strerror(no), ')');
-}
-
-const char* prologue_prefix[ALOG_AUDIT + 1];
-const char* prologue_suffix[ALOG_AUDIT + 1];
-
-void alog_set_level_prefix(int level, const char* prefix) {
-    prologue_prefix[level] = prefix;
-}
-void alog_set_level_suffix(int level, const char* suffix) {
-    prologue_suffix[level] = suffix;
-}
-
-const char* alog_get_level_prefix(int level) {
-    return prologue_prefix[level];
-}
-
-const char* alog_get_level_suffix(int level) {
-    return prologue_suffix[level];
 }

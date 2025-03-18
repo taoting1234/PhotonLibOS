@@ -134,7 +134,6 @@ void* ObjectCacheBase::ref_release(ItemPtr item, bool recycle, bool destroy) {
             }
         }
     }
-    void* ret = nullptr;
     if (recycle) {
         sem.wait(1);
         {
@@ -143,7 +142,7 @@ void* ObjectCacheBase::ref_release(ItemPtr item, bool recycle, bool destroy) {
             _set.erase(item);
         }
         if (!destroy) {
-            std::swap(ret, item->_obj);            
+            std::swap(ret, item->_obj);
         }
         delete item;
         blocker.notify_all();
@@ -152,9 +151,8 @@ void* ObjectCacheBase::ref_release(ItemPtr item, bool recycle, bool destroy) {
 }
 
 // the argument `key` plays the roles of (type-erased) key
-void* ObjectCacheBase::release(const ObjectCacheBase::Item& key_item,
-                             bool recycle, bool destroy) {
-    auto item = find(key_item);
+void* ObjectCacheBase::release(const Item& key_item, bool recycle, bool destroy) {
+    auto item = ExpireContainerBase::TypedIterator<Item>(Base::find(key_item));
     if (item == end()) return nullptr;
     return ref_release(*item, recycle, destroy);
 }
