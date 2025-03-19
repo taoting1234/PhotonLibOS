@@ -53,7 +53,7 @@ public:
     }
 
     int lock(uint64_t timeout = -1) {
-        Timeout tmo(timeout);
+        photon::Timeout tmo(timeout);
         SCOPED_LOCK(spin);
         while (!prelocked_trylock()) {
             if (cv_unique.wait(spin, tmo.timeout()) == -ETIMEDOUT)
@@ -63,7 +63,7 @@ public:
     }
 
     int lock_shared(uint64_t timeout = -1) {
-        Timeout tmo(timeout);
+        photon::Timeout tmo(timeout);
         SCOPED_LOCK(spin);
         while (!prelocked_trylock_shared()) {
             if (cv_shared.wait(spin, tmo.timeout()) == -ETIMEDOUT)
