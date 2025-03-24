@@ -58,6 +58,7 @@ option(FETCH_GTEST_GFLAGS_SOURCE "Fetch gtest, gmock and gflags source code. Lin
 option(ENABLE_FSTACK_DPDK "Use f-stack + DPDK as the event engine" OFF)
 option(ENABLE_EXTFS "enable extfs" OFF)
 option(PHOTON_ALL_ASAN "enable all asan" OFF)
+add_definitions(-D_GLIBCXX_USE_CXX11_ABI=0)
 
 if (PHOTON_ALL_ASAN)
     add_compile_options(-fsanitize=address)
@@ -74,7 +75,8 @@ endif ()
 set(global_compile_options -Wall -Wno-error=pragmas)
 if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 8.0)
     # Hint: -faligned-new is enabled by default after -std=c++17
-    list(APPEND global_compile_options -Werror -faligned-new)
+    list(APPEND global_compile_options -Werror)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -faligned-new")
 endif ()
 add_compile_options(${global_compile_options})
 
