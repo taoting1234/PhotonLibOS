@@ -152,7 +152,7 @@ if (CMAKE_SYSTEM_NAME MATCHES "Linux")
         LIST(APPEND dependencies fuse)
     endif ()
     if (PHOTON_ENABLE_URING)
-        LIST(APPEND dependencies uring)
+        # LIST(APPEND dependencies uring)
     endif ()
 endif ()
 if (PHOTON_ENABLE_SASL)
@@ -210,7 +210,7 @@ if (CMAKE_SYSTEM_NAME MATCHES "Linux")
                     UPDATE_COMMAND ./configure
             )
             FetchContent_MakeAvailable(liburing)
-            set(liburing_include_dir ${liburing_SOURCE_DIR}/src/include)
+            set(URING_INCLUDE_DIRS ${liburing_SOURCE_DIR}/src/include)
             add_library(
                     uring
                     STATIC
@@ -223,7 +223,7 @@ if (CMAKE_SYSTEM_NAME MATCHES "Linux")
             # When multiple -O options appear, only the last one is effective
             target_compile_options(uring PRIVATE -O3 -Wall -Wextra -fno-stack-protector -Wno-unused-parameter -Wno-sign-compare)
             target_compile_definitions(uring PRIVATE _GNU_SOURCE LIBURING_INTERNAL)
-            target_include_directories(uring PRIVATE ${liburing_include_dir})
+            target_include_directories(uring PRIVATE ${URING_INCLUDE_DIRS})
         else()
             message("liburing found")
         endif()
