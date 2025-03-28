@@ -1040,14 +1040,14 @@ inline size_t iovector_view::memcpy_from(const iovector_view* iov_, size_t size)
 inline void do_static_assert()
 {
 #ifdef __CLANG__
-    typedef IOVectorEntity<32, 4> IOV;
+    typedef IOVectorEntity<1024, 4> IOV;
     static_assert(offsetof(IOV, iovs) == offsetof(iovector_base, iovs), "offset assumption");
     static_assert(offsetof(IOV, allocator) + offsetof(IOAlloc, bases) ==
                   offsetof(IOV, bases),  "offset assumption");
 #endif
 }
 
-typedef IOVectorEntity<32, 4> IOVector;
+typedef IOVectorEntity<1024, 4> IOVector;
 
 inline iovector* new_iovector(uint16_t capacity, uint16_t preserve)
 {
