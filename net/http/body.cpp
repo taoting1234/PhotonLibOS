@@ -24,6 +24,7 @@ limitations under the License.
 #include <photon/common/stream.h>
 #include <tuple>
 #include <utility>
+#include <algorithm>
 
 namespace photon {
 namespace net {
@@ -101,6 +102,28 @@ public:
             ret += tmp;
         }
         return ret;
+    }
+
+    virtual int skip_read(size_t off) {
+        constexpr size_t len = 4096;
+        static char buf[len];
+        while (off) {
+            auto n = read(buf, std::min(len, off));
+            if (n <= 0) return -EIO;
+            off -= n;
+        }
+
+        return 0;
+    }
+
+    ssize_t preadv(const struct iovec *iov, int iovcnt, size_t off) override {
+        int ret = 0;
+        ret = skip_read(off);
+        if (ret != 0) {
+            return ret;
+        }
+
+        return readv(iov, iovcnt);
     }
 
 protected:

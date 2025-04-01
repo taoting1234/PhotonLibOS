@@ -161,6 +161,12 @@ ssize_t Message::readv(const struct iovec *iov, int iovcnt) {
     return m_body_stream->readv(iov, iovcnt);
 }
 
+ssize_t Message::preadv(const struct iovec *iov, int iovcnt, size_t off) {
+    if (!m_body_stream)
+        LOG_ERROR_RETURN(EIO, -1, "body not readable");
+    return m_body_stream->preadv(iov, iovcnt, off);
+}
+
 ssize_t Message::write(const void *buf, size_t count) {
     if (message_status < HEADER_SENT && send_header() < 0)
         return -1;

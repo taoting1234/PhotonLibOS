@@ -34,6 +34,9 @@ public:
     // should keep read/readv write/writev as photon-safe atomic operation
     virtual ssize_t read(void *buf, size_t count) = 0;
     virtual ssize_t readv(const struct iovec *iov, int iovcnt) = 0;
+    virtual ssize_t preadv(const struct iovec *iov, int iovcnt, size_t off) {
+        return -ENOTSUP;
+    }
     virtual ssize_t readv_mutable(struct iovec *iov, int iovcnt)
     {   // there might be a faster implementaion in derived class
         return readv(iov, iovcnt);
