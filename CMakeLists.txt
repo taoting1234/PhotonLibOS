@@ -18,52 +18,43 @@ include(ExternalProject)
 include(CMake/build-from-src.cmake)
 
 # Options
-# set(PHOTON_CXX_STANDARD "14" CACHE STRING "C++ standard")
-# option(PHOTON_BUILD_TESTING "enable build testing" OFF)
-# option(PHOTON_BUILD_WITH_ASAN "build with asan" OFF)
-# option(PHOTON_ENABLE_URING "enable io_uring function" OFF)
-# option(PHOTON_ENABLE_FUSE "enable fuse function" OFF)
-# option(PHOTON_GLOBAL_INIT_OPENSSL "Turn this off if any of your third-party libs inits old-version OpenSSL as well,
-# because Photon will register coroutine locks for crypto. But don't bother if you have latest OpenSSL >= 1.1.0" ON)
-# option(PHOTON_ENABLE_SASL "enable sasl" OFF)
-# option(PHOTON_ENABLE_MIMIC_VDSO "enable mimic vdso" OFF)
-# option(PHOTON_ENABLE_FSTACK_DPDK "Use f-stack + DPDK as the event engine" OFF)
-# option(PHOTON_ENABLE_EXTFS "enable extfs" OFF)
-# option(PHOTON_ENABLE_ECOSYSTEM "enable ecosystem" OFF)
-# option(PHOTON_ENABLE_LIBCURL "enable libcurl" ON)
-
-# option(PHOTON_BUILD_DEPENDENCIES "" OFF)
-# set(PHOTON_AIO_SOURCE "https://pagure.io/libaio/archive/libaio-0.3.113/libaio-0.3.113.tar.gz" CACHE STRING "")
-# set(PHOTON_ZLIB_SOURCE "https://github.com/madler/zlib/releases/download/v1.2.13/zlib-1.2.13.tar.gz" CACHE STRING "")
-# set(PHOTON_OPENSSL_SOURCE "https://github.com/openssl/openssl/archive/refs/heads/OpenSSL_1_0_2-stable.tar.gz" CACHE STRING "")
-# set(PHOTON_CURL_SOURCE "https://github.com/curl/curl/archive/refs/tags/curl-7_42_1.tar.gz" CACHE STRING "")
-# set(PHOTON_URING_SOURCE "https://github.com/axboe/liburing/archive/refs/tags/liburing-2.3.tar.gz" CACHE STRING "")
-# set(PHOTON_FUSE_SOURCE "" CACHE STRING "")
-# set(PHOTON_GSASL_SOURCE "" CACHE STRING "")
-# set(PHOTON_FSTACK_SOURCE "" CACHE STRING "")
-# set(PHOTON_E2FS_SOURCE "" CACHE STRING "")
-# set(PHOTON_GFLAGS_SOURCE "https://github.com/gflags/gflags/archive/refs/tags/v2.2.2.tar.gz" CACHE STRING "")
-# set(PHOTON_GOOGLETEST_SOURCE "https://github.com/google/googletest/archive/refs/tags/release-1.12.1.tar.gz" CACHE STRING "")
-# set(PHOTON_RAPIDJSON_GIT "https://github.com/Tencent/rapidjson.git" CACHE STRING "")
-# set(PHOTON_RAPIDXML_SOURCE "https://sourceforge.net/projects/rapidxml/files/rapidxml/rapidxml%201.13/rapidxml-1.13.zip/download" CACHE STRING "")
-# set(PHOTON_RAPIDYAML_SOURCE "https://github.com/biojppm/rapidyaml/releases/download/v0.5.0/rapidyaml-0.5.0.hpp" CACHE STRING "")
-# set(PHOTON_CPP_REDIS_SOURCE "https://github.com/cpp-redis/cpp_redis/archive/refs/tags/4.3.1.tar.gz" CACHE STRING "")
-option(PHOTON_NO_SSL_GLOBAL_INIT "ignore crypto id lock callback" OFF)
-option(ENABLE_URING "enable io_uring function" OFF)
-option(ENABLE_FUSE "enable fuse function" OFF)
-option(ENABLE_SASL "enable sasl" OFF)
-option(ENABLE_MIMIC_VDSO "enable mimic vdso" OFF)
-option(BUILD_TESTING "enable build testing" OFF)
-option(FETCH_GTEST_GFLAGS_SOURCE "Fetch gtest, gmock and gflags source code. Link their static libs" OFF)
-option(ENABLE_FSTACK_DPDK "Use f-stack + DPDK as the event engine" OFF)
-option(ENABLE_EXTFS "enable extfs" OFF)
+set(PHOTON_CXX_STANDARD "14" CACHE STRING "C++ standard")
+option(PHOTON_BUILD_TESTING "enable build testing" OFF)
+option(PHOTON_BUILD_WITH_ASAN "build with asan" OFF)
+option(PHOTON_ENABLE_URING "enable io_uring function" OFF)
+option(PHOTON_ENABLE_FUSE "enable fuse function" OFF)
+option(PHOTON_GLOBAL_INIT_OPENSSL "Turn this off if any of your third-party libs inits old-version OpenSSL as well,
+because Photon will register coroutine locks for crypto. But don't bother if you have latest OpenSSL >= 1.1.0" ON)
+option(PHOTON_ENABLE_SASL "enable sasl" OFF)
+option(PHOTON_ENABLE_MIMIC_VDSO "enable mimic vdso" OFF)
+option(PHOTON_ENABLE_FSTACK_DPDK "Use f-stack + DPDK as the event engine" OFF)
+option(PHOTON_ENABLE_EXTFS "enable extfs" OFF)
+option(PHOTON_ENABLE_ECOSYSTEM "enable ecosystem" OFF)
+option(PHOTON_ENABLE_LIBCURL "enable libcurl" ON)
+set(PHOTON_DEFAULT_LOG_LEVEL "0" CACHE STRING "default log level")
 option(PHOTON_ALL_ASAN "enable all asan" OFF)
-add_definitions(-D_GLIBCXX_USE_CXX11_ABI=0)
-
+ 
 if (PHOTON_ALL_ASAN)
     add_compile_options(-fsanitize=address)
     add_link_options(-fsanitize=address -static-libasan)
 endif()
+
+option(PHOTON_BUILD_DEPENDENCIES "" OFF)
+set(PHOTON_AIO_SOURCE "https://pagure.io/libaio/archive/libaio-0.3.113/libaio-0.3.113.tar.gz" CACHE STRING "")
+set(PHOTON_ZLIB_SOURCE "https://github.com/madler/zlib/releases/download/v1.2.13/zlib-1.2.13.tar.gz" CACHE STRING "")
+set(PHOTON_OPENSSL_SOURCE "https://github.com/openssl/openssl/archive/refs/heads/OpenSSL_1_0_2-stable.tar.gz" CACHE STRING "")
+set(PHOTON_CURL_SOURCE "https://github.com/curl/curl/archive/refs/tags/curl-7_42_1.tar.gz" CACHE STRING "")
+set(PHOTON_URING_SOURCE "https://github.com/axboe/liburing/archive/refs/tags/liburing-2.3.tar.gz" CACHE STRING "")
+set(PHOTON_FUSE_SOURCE "" CACHE STRING "")
+set(PHOTON_GSASL_SOURCE "" CACHE STRING "")
+set(PHOTON_FSTACK_SOURCE "" CACHE STRING "")
+set(PHOTON_E2FS_SOURCE "" CACHE STRING "")
+set(PHOTON_GFLAGS_SOURCE "https://github.com/gflags/gflags/archive/refs/tags/v2.2.2.tar.gz" CACHE STRING "")
+set(PHOTON_GOOGLETEST_SOURCE "https://github.com/google/googletest/archive/refs/tags/release-1.12.1.tar.gz" CACHE STRING "")
+set(PHOTON_RAPIDJSON_GIT "https://github.com/Tencent/rapidjson.git" CACHE STRING "")
+set(PHOTON_RAPIDXML_SOURCE "https://sourceforge.net/projects/rapidxml/files/rapidxml/rapidxml%201.13/rapidxml-1.13.zip/download" CACHE STRING "")
+set(PHOTON_RAPIDYAML_SOURCE "https://github.com/biojppm/rapidyaml/releases/download/v0.5.0/rapidyaml-0.5.0.hpp" CACHE STRING "")
+set(PHOTON_CPP_REDIS_SOURCE "https://github.com/cpp-redis/cpp_redis/archive/refs/tags/4.3.1.tar.gz" CACHE STRING "")
 
 # Get CPU arch
 execute_process(COMMAND uname -m OUTPUT_VARIABLE ARCH OUTPUT_STRIP_TRAILING_WHITESPACE)
@@ -75,8 +66,7 @@ endif ()
 set(global_compile_options -Wall -Wno-error=pragmas)
 if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 8.0)
     # Hint: -faligned-new is enabled by default after -std=c++17
-    list(APPEND global_compile_options -Werror)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -faligned-new")
+    list(APPEND global_compile_options -Werror -faligned-new)
 endif ()
 add_compile_options(${global_compile_options})
 
@@ -117,9 +107,9 @@ if (${ARCH} STREQUAL x86_64)
     endif ()
 endif ()
 
-# set(CMAKE_C_FLAGS ${CMAKE_CXX_FLAGS})
-# set(CMAKE_C_FLAGS_DEBUG ${CMAKE_CXX_FLAGS_DEBUG})
-# set(CMAKE_C_FLAGS_RELEASE ${CMAKE_CXX_FLAGS_RELEASE})
+set(CMAKE_C_FLAGS ${CMAKE_CXX_FLAGS})
+set(CMAKE_C_FLAGS_DEBUG ${CMAKE_CXX_FLAGS_DEBUG})
+set(CMAKE_C_FLAGS_RELEASE ${CMAKE_CXX_FLAGS_RELEASE})
 
 # Default build type is Release
 if (NOT CMAKE_BUILD_TYPE)
@@ -152,7 +142,7 @@ if (CMAKE_SYSTEM_NAME MATCHES "Linux")
         LIST(APPEND dependencies fuse)
     endif ()
     if (PHOTON_ENABLE_URING)
-        # LIST(APPEND dependencies uring)
+        LIST(APPEND dependencies uring)
     endif ()
 endif ()
 if (PHOTON_ENABLE_SASL)
@@ -191,73 +181,6 @@ add_subdirectory(third_party)
 if (PHOTON_ENABLE_ECOSYSTEM)
     add_subdirectory(ecosystem)
 endif ()
-# Find packages either from cmake-modules or external packages(in CMake dir)
-if (CMAKE_SYSTEM_NAME MATCHES "Linux")
-    find_package(aio REQUIRED)
-    if (ENABLE_FUSE)
-        find_package(fuse REQUIRED)
-    endif ()
-    if (ENABLE_URING)
-        find_package(uring)
-        if (NOT URING_FOUND)
-            message("liburing not found, fetch source and compile it")
-            # Fetch liburing
-            FetchContent_Declare(
-                    liburing
-                    # GIT_REPOSITORY https://github.com/axboe/liburing.git
-                    GIT_REPOSITORY https://gitee.com/mirrors_axboe/liburing.git
-                    GIT_TAG liburing-2.3
-                    UPDATE_COMMAND ./configure
-            )
-            FetchContent_MakeAvailable(liburing)
-            set(URING_INCLUDE_DIRS ${liburing_SOURCE_DIR}/src/include)
-            add_library(
-                    uring
-                    STATIC
-                    ${liburing_SOURCE_DIR}/src/setup.c
-                    ${liburing_SOURCE_DIR}/src/queue.c
-                    ${liburing_SOURCE_DIR}/src/register.c
-                    ${liburing_SOURCE_DIR}/src/syscall.c
-            )
-            # CMake didn't provide an abstraction of optimization level for now.
-            # When multiple -O options appear, only the last one is effective
-            target_compile_options(uring PRIVATE -O3 -Wall -Wextra -fno-stack-protector -Wno-unused-parameter -Wno-sign-compare)
-            target_compile_definitions(uring PRIVATE _GNU_SOURCE LIBURING_INTERNAL)
-            target_include_directories(uring PRIVATE ${URING_INCLUDE_DIRS})
-        else()
-            message("liburing found")
-        endif()
-    endif ()
-endif()
-find_package(OpenSSL REQUIRED)
-find_package(ZLIB REQUIRED)
-find_package(CURL REQUIRED)
-if (ENABLE_SASL)
-    find_package(gsasl REQUIRED)
-endif ()
-if (ENABLE_EXTFS)
-    find_package(e2fs REQUIRED)
-endif()
-
-if (FETCH_GTEST_GFLAGS_SOURCE)
-    FetchContent_Declare(
-            gflags
-            # GIT_REPOSITORY https://github.com/gflags/gflags.git
-            # GIT_REPOSITORY https://gitee.com/mirrors/gflags.git
-            GIT_REPOSITORY git@gitlab.alibaba-inc.com:ofs/gflags.git
-            GIT_TAG v2.2.2
-            GIT_SUBMODULES ""
-    )
-    FetchContent_MakeAvailable(gflags)
-    FetchContent_Declare(
-            googletest
-            # GIT_REPOSITORY https://github.com/google/googletest.git
-            # GIT_REPOSITORY https://gitee.com/mirrors/googletest.git
-            GIT_REPOSITORY git@gitlab.alibaba-inc.com:ofs/googletest.git
-            GIT_TAG release-1.12.1
-    )
-    FetchContent_MakeAvailable(googletest)
-endif()
 
 # Compile photon objects
 file(GLOB PHOTON_SRC RELATIVE "${PROJECT_SOURCE_DIR}"

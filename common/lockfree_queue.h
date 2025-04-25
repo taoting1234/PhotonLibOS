@@ -537,7 +537,7 @@ class RingChannel : public QueueType {
 protected:
     photon::semaphore queue_sem;
     std::atomic<uint64_t> idler{0};
-    uint64_t default_yield_turn = -1UL;
+    uint64_t default_yield_turn = 64;
     uint64_t default_yield_usec = 1024;
 
     using T = decltype(std::declval<QueueType>().recv());
