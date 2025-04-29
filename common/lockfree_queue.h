@@ -577,8 +577,8 @@ public:
                 yield_turn--;
                 photon::thread_yield();
             } else {
-                // wait for 100ms
-                queue_sem.wait(1, 100UL * 1000);
+                // wait for 1s
+                queue_sem.wait(1, 1000UL * 1000);
                 // reset yield mark and set into busy wait
                 yield_turn = max_yield_turn;
                 yield_timeout.timeout(max_yield_usec);
