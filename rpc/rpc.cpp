@@ -222,7 +222,7 @@ namespace rpc {
             bool got_it;
             int* stream_serv_count;
             photon::condition_variable *stream_cv;
-            photon::mutex* w_lock;
+            std::shared_ptr<photon::mutex> w_lock;
 
             Context(SkeletonImpl* sk, IStream* s) :
                 request(sk->m_allocator), stream(s), sk(sk) { }
@@ -291,7 +291,6 @@ namespace rpc {
             }
             int response_sender(iovector* resp)
             {
-                assert(w_lock);
                 Header h;
                 h.size = (uint32_t)resp->sum();
                 h.function = header.function;
@@ -300,11 +299,13 @@ namespace rpc {
                 resp->push_front(&h, sizeof(h));
                 if (stream == nullptr)
                     LOG_ERRNO_RETURN(0, -1, "socket closed ");
-
-                w_lock->lock();
+                if (w_lock) {
+                    w_lock->lock();
+                }
                 ssize_t ret = stream->writev(resp->iovec(), resp->iovcnt());
-                w_lock->unlock();
-
+                if (w_lock) {
+                    w_lock->unlock();
+                }
                 if (ret < (ssize_t)(sizeof(h) + h.size)) {
                     stream->shutdown(ShutdownHow::ReadWrite);
                     LOG_ERRNO_RETURN(0, -1, "failed to send rpc response to stream ", stream);
@@ -315,46 +316,43 @@ namespace rpc {
         condition_variable m_cond_served;
         struct ThreadLink : public intrusive_list_node<ThreadLink>
         {
-            photon::thread* thread = photon::CURRENT;
+            photon::thread* thread = nullptr;
         };
-        intrusive_list<ThreadLink> m_list;  // Stores the thread ID of every stream
+        intrusive_list<ThreadLink> m_list;
         uint64_t m_serving_count = 0;
+        bool m_concurrent;
         bool m_running = true;
         photon::ThreadPoolBase *m_thread_pool;
-        virtual int serve(IStream* stream) override
+        virtual int serve(IStream* stream, bool ownership) override
         {
-            if (unlikely(!m_running))
-                return -1;
+            if (!m_running)
+                LOG_ERROR_RETURN(ENOTSUP, -1, "the skeleton has closed");
 
-#pragma GCC diagnostic push
-#if defined(__clang__)
-#pragma GCC diagnostic ignored "-Wunknown-warning-option"
-#endif
-#if __GNUC__ >= 12
-#pragma GCC diagnostic ignored "-Wdangling-pointer"
-#endif
             ThreadLink node;
             m_list.push_back(&node);
-#pragma GCC diagnostic pop
             DEFER(m_list.erase(&node));
+            DEFER(if (ownership) delete stream;);
             // stream serve refcount
             int stream_serv_count = 0;
-            photon::mutex w_lock;
             photon::condition_variable stream_cv;
-            // once serve exit, stream will destruct
+            // once serve goint to exit, stream may destruct
             // make sure all requests relies on this stream are finished
             DEFER({
                 while (stream_serv_count > 0) stream_cv.wait_no_lock();
             });
             if (stream_accept_notify) stream_accept_notify(stream);
             DEFER(if (stream_close_notify) stream_close_notify(stream));
-
-            while(likely(m_running)) {
+            auto w_lock = m_concurrent ? std::make_shared<photon::mutex>() : nullptr;
+            while(m_running)
+            {
                 Context context(this, stream);
                 context.stream_serv_count = &stream_serv_count;
                 context.stream_cv = &stream_cv;
-                context.w_lock = &w_lock;
+                context.w_lock = w_lock;
+                node.thread = CURRENT;
                 int ret = context.read_request();
+                ERRNO err;
+                node.thread = nullptr;
                 if (ret < 0) {
                     // should only shutdown read, for other threads
                     // might still writing
@@ -367,11 +365,16 @@ namespace rpc {
                     }
                 }
 
-                context.got_it = false;
-                m_thread_pool->thread_create(&async_serve, &context);
-                stream_serv_count ++;
-                while(!context.got_it)
-                    thread_yield();
+                if (!m_concurrent) {
+                    context.serve_request();
+                } else {
+                    context.got_it = false;
+                    m_thread_pool->thread_create(&async_serve, &context);
+                    // async_serve will be start, add refcount here
+                    stream_serv_count ++;
+                    while(!context.got_it)
+                        thread_yield_to(nullptr);
+                }
             }
             return 0;
         }
@@ -380,40 +383,43 @@ namespace rpc {
             bool &got_it = ((Context*)args_)->got_it;
             Context context(std::move(*(Context*)args_));
             got_it = true;
-            thread_yield();
+            thread_yield_to(nullptr);
             context.serve_request();
             // serve done, here reduce refcount
             (*context.stream_serv_count) --;
             context.stream_cv->notify_all();
             return nullptr;
         }
-        virtual int shutdown(bool no_more_requests) override {
-            m_running = !no_more_requests;
-            while (m_list) {
-                auto th = m_list.front()->thread;
-                thread_enable_join(th);
-                if (no_more_requests) {
-                    thread_interrupt(th);
-                }
-                // Wait all streams destructed. Their attached RPC requests are finished as well.
-                thread_join((join_handle*) th);
-            }
+        virtual int shutdown_no_wait() override {
+            photon::thread_create11(&SkeletonImpl::shutdown, this);
             return 0;
         }
-        int shutdown_no_wait() override {
+        virtual int shutdown() override
+        {
             m_running = false;
-            for (auto* each: m_list) {
-                thread_interrupt(each->thread);
+            for (const auto& x: m_list)
+                if (x->thread)
+                    thread_interrupt(x->thread);
+            // it should confirm that all threads are finished
+            // or m_list may not destruct correctly
+            while (m_serving_count > 0) {
+                // means shutdown called by rpc serve, should return to give chance to shutdown
+                if ((m_serving_count == 1) && (m_list.front()->thread == nullptr))
+                    return 0;
+                m_cond_served.wait_no_lock();
             }
+            while (!m_list.empty())
+                thread_usleep(1000);
             return 0;
         }
         virtual ~SkeletonImpl() {
-            shutdown(true);
+            shutdown();
             photon::delete_thread_pool(m_thread_pool);
         }
-        explicit SkeletonImpl(uint32_t pool_size = 128) :
+        explicit SkeletonImpl(uint32_t pool_size = 128)
+            : m_concurrent(true),
               m_thread_pool(photon::new_thread_pool(pool_size)) {
-            m_thread_pool->enable_autoscale();
+            // m_thread_pool->enable_autoscale();
         }
     };
     Skeleton* new_skeleton(uint32_t pool_size)
@@ -464,10 +470,9 @@ namespace rpc {
 
     protected:
         net::ISocketStream* get_socket(const net::EndPoint& ep, bool tls) const {
+            LOG_INFO("Connect to ", ep);
             auto sock = tcpclient->connect(ep);
-            if (!sock)
-                LOG_ERRNO_RETURN(0, nullptr, "failed to connect to ", ep);
-            LOG_DEBUG("connected to ", ep);
+            if (!sock) return nullptr;
             sock->timeout(m_rpc_timeout);
             if (tls) {
                 sock = net::new_tls_stream(tls_ctx, sock, net::SecurityRole::Client, true);

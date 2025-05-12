@@ -29,7 +29,7 @@ namespace rpc {
     public:
         unordered_map<uint64_t, OutOfOrderContext*> m_map;
         condition_variable m_cond_collected;
-        mutex m_mutex_w, m_mutex_r;
+        mutex m_mutex_w, m_mutex_r, m_mutex_map;
         uint64_t m_issuing = 0;
         uint64_t m_tag = 0;
         bool m_running = true;
@@ -44,8 +44,12 @@ namespace rpc {
             while (m_issuing)
                 photon::thread_yield_to(nullptr);
             // let all issued tasks complete
-            while (get_queue_count() > 0)
-                m_cond_collected.wait_no_lock();
+            while (true) {
+                SCOPED_LOCK(m_mutex_map);
+                if (get_queue_count() == 0)
+                    break;
+                m_cond_collected.wait(m_mutex_map);
+            }
             return 0;
         }
         int get_queue_count() {
@@ -53,9 +57,9 @@ namespace rpc {
         }
         int issue_operation(OutOfOrderContext& args) //firing issue
         {
+            scoped_lock lock(m_mutex_w);
             m_issuing ++;
             DEFER(m_issuing --);
-            scoped_lock lock(m_mutex_w);
             if (!m_running)
                 LOG_ERROR_RETURN(ESHUTDOWN, -1, "engine is been shuting down");
             if (!args.flag_tag_valid)
@@ -66,6 +70,7 @@ namespace rpc {
             args.th = CURRENT;
             args.collected = false;
             args.ret = 0;
+            SCOPED_LOCK(m_mutex_map);
             auto ret = m_map.insert({args.tag, &args}); //the return value is {iter, bool}
             if (!ret.second) // means insert failed because of key already exists
             {
@@ -94,10 +99,14 @@ namespace rpc {
             // when wait_completion returned,
             // always have tag removed from the map
             // notify the waiting function (like shutdown())
-            DEFER(m_cond_collected.notify_one());
+            DEFER({
+                SCOPED_LOCK(m_mutex_map);
+                m_cond_collected.notify_one();
+            });
 
             auto o_tag = args.tag;
             {
+                SCOPED_LOCK(m_mutex_map);
                 auto o_it = m_map.find(o_tag);
                 if (o_it == m_map.end()) {
                     LOG_ERROR_RETURN(EINVAL, -1, "issue of ` not found", VALUE(args.tag));
@@ -124,34 +133,38 @@ namespace rpc {
                 // the thread will waiting till it hold the lock and get it by itself
                 // Since thread may not know the result of an issue will recieve by which thread
                 // User must make sure that the do_completion can atleast recieve the result of it's own issue.
-                if (ret < 0) {
-                    // set with nullptr means the thread is once issued but failed when wait_completion
-                    m_map.erase(o_tag);
-                    LOG_ERROR_RETURN(0, -1, "failed to do_completion()");
+                OutOfOrderContext* targ = nullptr;
+                {
+                    SCOPED_LOCK(m_mutex_map);
+                    if (ret < 0) {
+                        // set with nullptr means the thread is once issued but failed when wait_completion
+                        m_map.erase(o_tag);
+                        LOG_ERROR_RETURN(0, -1, "failed to do_completion()");
+                    }
+
+                    if (o_tag == args.tag) {
+                        m_map.erase(o_tag);
+                        break;   // it's my result, let's break, and collect it
+                    }
+
+                    auto it = m_map.find(args.tag);
+
+                    if (it == m_map.end()) {
+                        // response tag never issued
+                        m_map.erase(o_tag);
+                        LOG_ERROR_RETURN(ENOENT, -2, "response's tag ` not found, response should be dropped", args.tag);
+                    }
+                    targ = it->second;
                 }
 
-                if (o_tag == args.tag) {
-                    m_map.erase(o_tag);
-                    break;   // it's my result, let's break, and collect it
-                }
-
-                auto it = m_map.find(args.tag);
-
-                if (it == m_map.end()) {
-                    // response tag never issued
-                    m_map.erase(o_tag);
-                    LOG_ERROR_RETURN(ENOENT, -2, "response's tag ` not found, response should be dropped", args.tag);
-                }
-
-                auto targ = it->second;
                 auto th = targ->th;
 
                 if (!th)
                     // issued but requesting thread just failed in completion when waiting
                     LOG_ERROR_RETURN(ENOENT, -2, "response recvd, but requesting thread is NULL!");
 
-                it->second->ret = targ->do_collect(targ);
-                it->second->collected = true;
+                targ->ret = targ->do_collect(targ);
+                targ->collected = true;
                 thread_interrupt(th);    // other threads' response, resume him
             }
             // only break can bring out the while-loop
