@@ -58,7 +58,7 @@ int log_output_file_close();
 
 #ifndef LOG_BUFFER_SIZE
 // size of a temp buffer on stack to format a log, deallocated after output
-#define LOG_BUFFER_SIZE 4096
+#define LOG_BUFFER_SIZE 32768
 #endif
 
 #define ALOG_COLOR_RESET "\033[0m"
