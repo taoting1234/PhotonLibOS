@@ -33,7 +33,7 @@ option(PHOTON_ENABLE_ECOSYSTEM "enable ecosystem" OFF)
 option(PHOTON_ENABLE_LIBCURL "enable libcurl" ON)
 set(PHOTON_DEFAULT_LOG_LEVEL "0" CACHE STRING "default log level")
 option(PHOTON_ALL_ASAN "enable all asan" OFF)
- 
+
 if (PHOTON_ALL_ASAN)
     add_compile_options(-fsanitize=address)
     add_link_options(-fsanitize=address -static-libasan)
@@ -71,7 +71,7 @@ endif ()
 add_compile_options(${global_compile_options})
 
 if (PHOTON_BUILD_WITH_ASAN)
-    if ((NOT CMAKE_BUILD_TYPE STREQUAL "Debug") OR (NOT CMAKE_SYSTEM_NAME STREQUAL "Linux"))
+    if (NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
         message(FATAL_ERROR "Wrong environment")
     endif ()
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address -static-libasan")
