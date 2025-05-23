@@ -70,9 +70,9 @@ public:
     void do_loop() {
         pth = photon::CURRENT;
         pool = photon::new_thread_pool(32);
-        LOG_INFO("worker start");
+        LOG_DEBUG("worker start");
         main_loop();
-        LOG_INFO("worker finished");
+        LOG_DEBUG("worker finished");
         photon::delete_thread_pool(pool);
         pool = nullptr;
     }

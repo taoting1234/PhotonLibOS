@@ -82,7 +82,7 @@ public:
         return init();              // re-init
     }
     virtual ~EventEngineEPoll() override {
-        LOG_INFO("Finish event engine: epoll");
+        LOG_DEBUG("Finish event engine: epoll");
         if_close_fd(_engine_fd);
         if_close_fd(_evfd);
     }
@@ -315,7 +315,7 @@ ok:     entry.interests |= eint;
 
 __attribute__((noinline)) static
 EventEngineEPoll* new_epoll_engine(ALogStringL role) {
-    LOG_INFO("Init epoll event engine: ", role);
+    LOG_DEBUG("Init epoll event engine: ", role);
     return NewObj<EventEngineEPoll>()->init();
 }
 

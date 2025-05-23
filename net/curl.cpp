@@ -258,7 +258,7 @@ int libcurl_init(long flags, long pipelining, long maxconn) {
         if (reset_handler == nullptr) {
             reset_handler = new CurlResetHandle();
         }
-        LOG_INFO("libcurl initialized");
+        LOG_DEBUG("libcurl initialized");
     }
 
     return 0;
@@ -276,7 +276,7 @@ void libcurl_fini() {
         LOG_ERROR("libcurl-multi cleanup error: ", curl_multi_strerror(ret));
     cctx.g_libcurl_multi = nullptr;
     safe_delete(reset_handler);
-    LOG_INFO("libcurl finished");
+    LOG_DEBUG("libcurl finished");
 }
 
 std::string url_escape(const char* str) {

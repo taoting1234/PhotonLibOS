@@ -289,7 +289,7 @@ namespace photon
         if (reset_handler == nullptr) {
             reset_handler = new SignalResetHandle();
         }
-        LOG_INFO("signalfd initialized");
+        LOG_DEBUG("signalfd initialized");
         return clear_signal_mask();
     }
 
@@ -324,7 +324,7 @@ namespace photon
         }
 #endif
         safe_delete(reset_handler);
-        LOG_INFO("signalfd finished");
+        LOG_DEBUG("signalfd finished");
         return clear_signal_mask();
     }
 }
