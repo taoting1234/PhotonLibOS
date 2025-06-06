@@ -21,6 +21,7 @@ limitations under the License.
 #include <mutex>
 #include <condition_variable>
 #include <system_error>
+#include "photon/thread/thread.h"
 
 #include <photon/photon.h>
 #include <photon/thread/thread11.h>
@@ -331,6 +332,7 @@ inline thread::id get_id() noexcept {
 template<class Rep, class Period>
 inline void sleep_for(const ::std::chrono::duration<Rep, Period>& d) {
     uint64_t timeout = __duration_to_microseconds(d);
+    photon::__update_now();
     photon::thread_usleep(timeout);
 }
 
