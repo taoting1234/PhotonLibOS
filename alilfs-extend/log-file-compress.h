@@ -152,11 +152,10 @@ public:
                 rename(fn0, fn1);
                 if (last_generation == 1) {
                     std::string fn(fn1);
-                    // 创建线程处理 gzip 任务
                     std::thread gzip_thread([fn]() {
                         system(("gzip -f " + fn + " 2>/dev/null").c_str());
                     });
-                    gzip_thread.detach();  // 分离线程，让其在后台运行
+                    gzip_thread.detach();
                 }
             }
             last_generation--;
