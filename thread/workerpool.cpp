@@ -32,7 +32,7 @@ namespace photon {
 class WorkPool::impl {
 public:
     static constexpr uint32_t RING_SIZE = 65536;
-    static constexpr uint64_t QUEUE_YIELD_COUNT = 256;
+    static constexpr uint64_t QUEUE_YIELD_COUNT = 0;
     static constexpr uint64_t QUEUE_YIELD_US = 1024;
 
     photon::mutex worker_mtx;
