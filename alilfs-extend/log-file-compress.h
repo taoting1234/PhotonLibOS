@@ -3,13 +3,13 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <photon/common/alog.h>
-#include <photon/thread/workerpool.h>
+#include <pthread.h>
 #include <sys/uio.h>
 #include <unistd.h>
+#include <thread>
 
 #include <atomic>
 #include <mutex>
-#include <thread>
 #include <tuple>
 
 /**
@@ -21,32 +21,16 @@ Old log fill goes trying with gzip.
 
 class LogOutputCompressFile final : public ILogOutput {
 public:
-    static inline const char* log_compress_thread_name="photon:logzip";
-    static inline photon::WorkPool* wp = nullptr;
-    static inline std::atomic_uint32_t wp_ref_cnt = 0;
     int log_file_fd = -1;
     uint64_t log_file_size_limit = 0;
     char* log_file_name = nullptr;
     std::atomic<uint64_t> log_file_size{0};
     unsigned int log_file_max_cnt = 10;
-    LogOutputCompressFile() {
-        wp_ref_cnt++;
-        if (!wp) {
-            wp = new photon::WorkPool(1);
-            wp->call([]() {
-                pthread_setname_np(pthread_self(), log_compress_thread_name);
-            });
-        }
-    }
 
     // Dtor has been set as private member of interface
     // calling `destruct` is only way to destruct logoutput object
     virtual void destruct() override {
         log_output_file_close();
-        wp_ref_cnt--;
-        if (wp_ref_cnt.load() == 0) {
-            delete wp;
-        }
         delete this;
     }
 
@@ -168,9 +152,12 @@ public:
             } else {
                 rename(fn0, fn1);
                 if (last_generation == 1) {
-                    wp->async_call(new auto ([fn = fn1]() {
-                        system(("gzip -f " + std::string(fn) + " 2>/dev/null").c_str());
-                    }));
+                    std::string fn(fn1);
+                    std::thread gzip_thread([fn]() {
+                        pthread_setname_np(pthread_self(), "photon:logzip");
+                        system(("gzip -f " + fn + " 2>/dev/null").c_str());
+                    });
+                    gzip_thread.detach();
                 }
             }
             last_generation--;
