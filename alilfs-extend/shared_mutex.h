@@ -3,93 +3,142 @@
 #include <photon/thread/std-compat.h>
 #include <photon/thread/thread.h>
 
+#include <atomic>
 #include <chrono>
 
 namespace photon_lfsextend {
 
+// High-performance shared_mutex without starvation prevention.
+// Optimized for read-heavy workloads using lock-free atomic operations
+// for the read lock fast path.
+//
+// State encoding:
+//   state > 0  : number of active readers
+//   state == 0 : unlocked
+//   state == -1: write-locked
 class shared_mutex {
 protected:
     constexpr static int64_t MAX_SHARED_LOCK_COUNT = 1 << 16;
-    int64_t lock_state;
+    constexpr static int64_t WRITE_LOCKED = -1;
+
+    std::atomic<int64_t> lock_state{0};
     photon::condition_variable cv_shared;
     photon::condition_variable cv_unique;
     photon::spinlock spin;
 
+    // Try to wake up waiting threads after unlock.
+    // Must be called with spin lock held.
     void try_wake() {
-        if (lock_state == 0) {
-            if (!cv_unique.notify_one()) cv_shared.notify_all();
+        // Prefer waking writers first, then all readers
+        if (!cv_unique.notify_one()) {
+            cv_shared.notify_all();
         }
-    }
-
-    bool prelocked_trylock() {
-        if (lock_state == 0) {
-            lock_state--;
-            return true;
-        }
-        return false;
-    }
-
-    bool prelocked_trylock_shared() {
-        if (lock_state >= 0 && lock_state < MAX_SHARED_LOCK_COUNT) {
-            lock_state++;
-            return true;
-        }
-        return false;
     }
 
 public:
-    shared_mutex() : lock_state(0) {}
+    shared_mutex() = default;
     shared_mutex(const shared_mutex&) = delete;
-    shared_mutex operator=(const shared_mutex&) = delete;
+    shared_mutex& operator=(const shared_mutex&) = delete;
 
+    // Try to acquire exclusive (write) lock without blocking.
+    // Returns true on success, false if lock is held.
     bool trylock() {
-        SCOPED_LOCK(spin);
-        return prelocked_trylock();
+        int64_t expected = 0;
+        return lock_state.compare_exchange_strong(
+            expected, WRITE_LOCKED,
+            std::memory_order_acq_rel, std::memory_order_relaxed);
     }
 
+    // Try to acquire shared (read) lock without blocking.
+    // Lock-free fast path using CAS - no spinlock needed.
+    // Returns true on success, false if write-locked or max readers reached.
     bool trylock_shared() {
-        SCOPED_LOCK(spin);
-        return prelocked_trylock_shared();
+        auto state = lock_state.load(std::memory_order_acquire);
+        while (state >= 0 && state < MAX_SHARED_LOCK_COUNT) {
+            if (lock_state.compare_exchange_weak(
+                    state, state + 1,
+                    std::memory_order_acq_rel, std::memory_order_acquire)) {
+                return true;
+            }
+            // state is updated by compare_exchange_weak on failure
+        }
+        return false;
     }
 
+    // Acquire exclusive (write) lock, blocking until available.
+    // Returns 0 on success, -ETIMEDOUT on timeout.
     int lock(uint64_t timeout = -1) {
+        // Fast path: try lock-free acquisition first
+        if (trylock()) {
+            return 0;
+        }
+
+        // Slow path: wait with spinlock protection
         photon::Timeout tmo(timeout);
         SCOPED_LOCK(spin);
-        while (!prelocked_trylock()) {
-            if (cv_unique.wait(spin, tmo.timeout()) == -ETIMEDOUT)
-                return -ETIMEDOUT;
+        while (true) {
+            int64_t expected = 0;
+            if (lock_state.compare_exchange_strong(
+                    expected, WRITE_LOCKED,
+                    std::memory_order_acq_rel, std::memory_order_relaxed)) {
+                return 0;
+            }
+            if (cv_unique.wait(spin, tmo.timeout()) < 0) {
+                return -errno;  // ETIMEDOUT or other errors
+            }
         }
-        return 0;
     }
 
+    // Acquire shared (read) lock, blocking until available.
+    // Returns 0 on success, -ETIMEDOUT on timeout.
     int lock_shared(uint64_t timeout = -1) {
+        // Fast path: lock-free acquisition (common case)
+        if (trylock_shared()) {
+            return 0;
+        }
+
+        // Slow path: wait with spinlock protection
         photon::Timeout tmo(timeout);
         SCOPED_LOCK(spin);
-        while (!prelocked_trylock_shared()) {
-            if (cv_shared.wait(spin, tmo.timeout()) == -ETIMEDOUT)
-                return -ETIMEDOUT;
+        while (true) {
+            auto state = lock_state.load(std::memory_order_acquire);
+            while (state >= 0 && state < MAX_SHARED_LOCK_COUNT) {
+                if (lock_state.compare_exchange_weak(
+                        state, state + 1,
+                        std::memory_order_acq_rel, std::memory_order_acquire)) {
+                    return 0;
+                }
+            }
+            if (cv_shared.wait(spin, tmo.timeout()) < 0) {
+                return -errno;  // ETIMEDOUT or other errors
+            }
         }
-        return 0;
     }
 
-    int unlock() {
+    // Release exclusive (write) lock.
+    // WARNING: Caller must ensure they actually hold the write lock.
+    // Calling unlock() without holding the write lock is undefined behavior.
+    void unlock() {
+        lock_state.store(0, std::memory_order_release);
+        // Wake up waiting threads
         SCOPED_LOCK(spin);
-        if (lock_state >= 0) {
-            return -EINVAL;
-        }
-        lock_state++;
         try_wake();
-        return 0;
     }
 
-    int unlock_shared() {
-        SCOPED_LOCK(spin);
-        if (lock_state <= 0) {
-            return -EINVAL;
+    // Release shared (read) lock.
+    // Lock-free using atomic decrement.
+    // WARNING: Caller must ensure they actually hold a read lock.
+    // Calling unlock_shared() without holding a read lock is undefined behavior.
+    void unlock_shared() {
+        auto prev = lock_state.fetch_sub(1, std::memory_order_acq_rel);
+        // If this was the last reader, wake up waiting writers
+        if (prev == 1) {
+            SCOPED_LOCK(spin);
+            // Double-check state is still 0 (no new readers jumped in)
+            if (lock_state.load(std::memory_order_acquire) == 0) {
+                try_wake();
+            }
         }
-        lock_state--;
-        try_wake();
-        return 0;
     }
 };
 
@@ -109,7 +158,7 @@ public:
         auto ret = smtx.lock();
         if (ret < 0) __throw_system_error(ret, "lock failed");
     }
-    bool try_lock() { return smtx.trylock() == 0; }
+    bool try_lock() { return smtx.trylock(); }
     template <class Rep, class Period>
     bool try_lock_for(
         const std::chrono::duration<Rep, Period>& timeout_duration) {
@@ -126,7 +175,7 @@ public:
         auto ret = smtx.lock_shared();
         if (ret < 0) __throw_system_error(ret, "lock failed");
     }
-    bool try_lock_shared() { return smtx.trylock_shared() == 0; }
+    bool try_lock_shared() { return smtx.trylock_shared(); }
     template <class Rep, class Period>
     bool try_lock_shared_for(
         const std::chrono::duration<Rep, Period>& timeout_duration) {
@@ -135,7 +184,10 @@ public:
     }
     template <class Clock, class Duration>
     bool try_lock_shared_until(
-        const std::chrono::time_point<Clock, Duration>& timeout_time);
+        const std::chrono::time_point<Clock, Duration>& timeout_time) {
+        return smtx.lock_shared(__duration_to_microseconds(
+                   timeout_time - ::std::chrono::steady_clock::now())) == 0;
+    }
     void unlock_shared() { smtx.unlock_shared(); }
 };
 
@@ -153,13 +205,13 @@ public:
         auto ret = smtx.lock();
         if (ret < 0) __throw_system_error(ret, "lock failed");
     }
-    bool try_lock() { return smtx.trylock() == 0; }
+    bool try_lock() { return smtx.trylock(); }
     void unlock() { smtx.unlock(); }
     void lock_shared() {
         auto ret = smtx.lock_shared();
         if (ret < 0) __throw_system_error(ret, "lock failed");
     }
-    bool try_lock_shared() { return smtx.trylock_shared() == 0; }
+    bool try_lock_shared() { return smtx.trylock_shared(); }
     void unlock_shared() { smtx.unlock_shared(); }
 };
 
