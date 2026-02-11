@@ -132,12 +132,14 @@ public:
     void unlock_shared() {
         auto prev = lock_state.fetch_sub(1, std::memory_order_acq_rel);
         // If this was the last reader, wake up waiting writers
+        // CRITICAL: Must unconditionally wake without double-checking state.
+        // Race scenario: after fetch_sub but before acquiring spinlock,
+        // another thread may acquire shared lock via trylock_shared().
+        // If we check state again and see readers, we won't wake waiters,
+        // causing writer deadlock since the new reader used lock-free path.
         if (prev == 1) {
             SCOPED_LOCK(spin);
-            // Double-check state is still 0 (no new readers jumped in)
-            if (lock_state.load(std::memory_order_acquire) == 0) {
-                try_wake();
-            }
+            try_wake();
         }
     }
 };

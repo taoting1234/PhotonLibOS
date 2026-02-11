@@ -184,27 +184,27 @@ BenchResult<LockType> run_benchmark(const BenchConfig& config) {
 // =============================================================================
 
 void print_separator() {
-    LOG_INFO("========================================================================");
+    printf("========================================================================\n");
 }
 
 void print_result_header() {
-    LOG_INFO("Lock Type                           Total Ops          QPS  Avg Lat(ns)   Read/Write");
+    printf("%-35s %10s %12s %12s   %s\n", "Lock Type", "Total Ops", "QPS", "Avg Lat(ns)", "Read/Write");
 }
 
 template <typename LockType>
 void print_result(const BenchResult<LockType>& result) {
-    LOG_INFO("` ` ` ` `/`",
-             LockType::name(), result.total_ops, result.qps,
-             result.avg_latency_ns, result.read_ops, result.write_ops);
+    printf("%-35s %10lu %12.0f %12.0f   %lu/%lu\n",
+           LockType::name(), result.total_ops, result.qps,
+           result.avg_latency_ns, result.read_ops, result.write_ops);
 }
 
 void run_scenario(const char* scenario_name, int read_percent,
                   int num_vcpus, int threads_per_vcpu, int duration_seconds) {
     print_separator();
-    LOG_INFO("Scenario: ` (Read: `%, Write: `%)",
-             scenario_name, read_percent, 100 - read_percent);
-    LOG_INFO("Config: ` vCPUs, ` threads/vCPU, ` seconds",
-             num_vcpus, threads_per_vcpu, duration_seconds);
+    printf("Scenario: %s (Read: %d%%, Write: %d%%)\n",
+           scenario_name, read_percent, 100 - read_percent);
+    printf("Config: %d vCPUs, %d threads/vCPU, %d seconds\n",
+           num_vcpus, threads_per_vcpu, duration_seconds);
     print_separator();
     print_result_header();
 
@@ -223,12 +223,12 @@ void run_scenario(const char* scenario_name, int read_percent,
     print_result(result2);
 
     // Print comparison
-    LOG_INFO("");
+    printf("\n");
     double speedup = result1.qps / result2.qps;
     if (speedup >= 1.0) {
-        LOG_INFO("Performance comparison: photon_lfsextend::shared_mutex is `x faster than photon::rwlock", speedup);
+        printf("Performance comparison: photon_lfsextend::shared_mutex is %.2fx faster than photon::rwlock\n", speedup);
     } else {
-        LOG_INFO("Performance comparison: photon_lfsextend::shared_mutex is `x slower than photon::rwlock", 1.0 / speedup);
+        printf("Performance comparison: photon_lfsextend::shared_mutex is %.2fx slower than photon::rwlock\n", 1.0 / speedup);
     }
 }
 
@@ -241,15 +241,11 @@ int main(int argc, char** argv) {
     photon::init(photon::INIT_EVENT_DEFAULT, photon::INIT_IO_NONE);
     DEFER(photon::fini());
 
-    // Configure logging to stdout at INFO level
-    set_log_output(log_output_stdout);
-    set_log_output_level(ALOG_INFO);
-
-    LOG_INFO("");
-    LOG_INFO("======================================================================");
-    LOG_INFO("       shared_mutex vs rwlock Performance Benchmark");
-    LOG_INFO("======================================================================");
-    LOG_INFO("");
+    printf("\n");
+    printf("======================================================================\n");
+    printf("       shared_mutex vs rwlock Performance Benchmark\n");
+    printf("======================================================================\n");
+    printf("\n");
 
     // Configuration
     int num_vcpus = 4;
@@ -265,18 +261,18 @@ int main(int argc, char** argv) {
         } else if (strcmp(argv[i], "--duration") == 0 && i + 1 < argc) {
             duration_seconds = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--help") == 0) {
-            LOG_INFO("Usage: ` [options]", argv[0]);
-            LOG_INFO("Options:");
-            LOG_INFO("  --vcpus N      Number of vCPUs (default: 4)");
-            LOG_INFO("  --threads N    Threads per vCPU (default: 32)");
-            LOG_INFO("  --duration N   Test duration in seconds (default: 3)");
+            printf("Usage: %s [options]\n", argv[0]);
+            printf("Options:\n");
+            printf("  --vcpus N      Number of vCPUs (default: 4)\n");
+            printf("  --threads N    Threads per vCPU (default: 32)\n");
+            printf("  --duration N   Test duration in seconds (default: 3)\n");
             return 0;
         }
     }
 
-    LOG_INFO("Running with: ` vCPUs, ` threads/vCPU, ` seconds per scenario",
-             num_vcpus, threads_per_vcpu, duration_seconds);
-    LOG_INFO("");
+    printf("Running with: %d vCPUs, %d threads/vCPU, %d seconds per scenario\n",
+           num_vcpus, threads_per_vcpu, duration_seconds);
+    printf("\n");
 
     // Scenario 1: Pure Read (100% read)
     run_scenario("Pure Read Workload", 100,
@@ -294,9 +290,9 @@ int main(int argc, char** argv) {
     run_scenario("Balanced Workload", 50,
                  num_vcpus, threads_per_vcpu, duration_seconds);
 
-    LOG_INFO("");
+    printf("\n");
     print_separator();
-    LOG_INFO("Benchmark completed.");
+    printf("Benchmark completed.\n");
     print_separator();
 
     return 0;

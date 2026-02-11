@@ -514,6 +514,230 @@ TEST(MultiThread, StressTest) {
 }
 
 // =============================================================================
+// Race Condition Reproduction Tests
+// =============================================================================
+
+// This test reproduces the deadlock scenario where:
+// 1. Last reader unlocks (state: 1 -> 0)
+// 2. New reader locks via fast path before unlock_shared acquires spinlock
+// 3. Writer waiting in cv_unique.wait() never gets woken up
+TEST(SharedMutex, RaceConditionDeadlock) {
+    photon_lfsextend::shared_mutex mtx;
+    std::atomic<bool> writer_acquired{false};
+    std::atomic<bool> test_timeout{false};
+    std::atomic<int> phase{0};
+
+    // Start with one reader
+    EXPECT_EQ(0, mtx.lock_shared());
+
+    // Create a writer that will wait
+    auto writer = photon::thread_enable_join(
+        photon::thread_create11([&]() {
+            phase.store(1, std::memory_order_release);
+            // This lock() should block waiting for reader to release
+            EXPECT_EQ(0, mtx.lock(2000 * 1000));  // 2s timeout
+            writer_acquired.store(true, std::memory_order_release);
+            mtx.unlock();
+        }));
+
+    // Wait for writer to start waiting
+    while (phase.load(std::memory_order_acquire) == 0) {
+        photon::thread_yield();
+    }
+    photon::thread_usleep(10 * 1000);  // Give writer time to enter wait
+
+    // Create a racer that will acquire shared lock during unlock_shared window
+    auto racer = photon::thread_enable_join(
+        photon::thread_create11([&]() {
+            // Spin trying to acquire shared lock
+            // This may succeed in the window between fetch_sub and spinlock acquisition
+            for (int i = 0; i < 10000 && !writer_acquired.load(std::memory_order_acquire); i++) {
+                if (mtx.trylock_shared()) {
+                    photon::thread_yield();
+                    mtx.unlock_shared();
+                }
+                photon::thread_yield();
+            }
+        }));
+
+    // Now unlock the original reader, creating the race window
+    mtx.unlock_shared();
+
+    // Wait for writer with timeout
+    auto timeout_thread = photon::thread_enable_join(
+        photon::thread_create11([&]() {
+            photon::thread_usleep(3000 * 1000);  // 3s timeout
+            if (!writer_acquired.load(std::memory_order_acquire)) {
+                test_timeout.store(true, std::memory_order_release);
+                LOG_ERROR("DEADLOCK DETECTED: Writer stuck for 3+ seconds!");
+            }
+        }));
+
+    photon::thread_join(racer);
+    photon::thread_join(timeout_thread);
+    
+    // If writer is still stuck, it will timeout naturally due to the 2s timeout in lock()
+    photon::thread_join(writer);
+
+    // This test should NOT timeout - if it does, we have the deadlock bug
+    EXPECT_FALSE(test_timeout.load()) 
+        << "Writer deadlocked - never acquired lock within 3 seconds";
+    EXPECT_TRUE(writer_acquired.load())
+        << "Writer should have acquired lock after reader released";
+}
+
+// Stress test to increase probability of hitting the race condition
+TEST(SharedMutex, RaceConditionStress) {
+    photon_lfsextend::shared_mutex mtx;
+    std::atomic<int> deadlock_count{0};
+    constexpr int ITERATIONS = 200;  // Increased iterations
+
+    for (int iter = 0; iter < ITERATIONS; iter++) {
+        std::atomic<bool> writer_acquired{false};
+        std::atomic<bool> iteration_timeout{false};
+
+        // Initial reader
+        EXPECT_EQ(0, mtx.lock_shared());
+
+        // Writer thread
+        auto writer = photon::thread_enable_join(
+            photon::thread_create11([&]() {
+                if (mtx.lock(500 * 1000) == 0) {  // 500ms timeout - shorter to fail faster
+                    writer_acquired.store(true, std::memory_order_release);
+                    mtx.unlock();
+                } else {
+                    iteration_timeout.store(true, std::memory_order_release);
+                }
+            }));
+
+        photon::thread_usleep(1 * 1000);  // Very short delay - increase race window
+
+        // MORE racers trying to exploit the race window
+        std::vector<photon::join_handle*> racers;
+        for (int i = 0; i < 16; i++) {  // Doubled racer count
+            racers.emplace_back(photon::thread_enable_join(
+                photon::thread_create11([&]() {
+                    for (int j = 0; j < 200; j++) {  // More attempts per racer
+                        if (mtx.trylock_shared()) {
+                            mtx.unlock_shared();
+                        }
+                        // Don't yield - maximize race probability
+                        if (writer_acquired.load(std::memory_order_acquire)) break;
+                    }
+                })));
+        }
+
+        // Unlock original reader - creates race window
+        mtx.unlock_shared();
+
+        for (auto& r : racers) {
+            photon::thread_join(r);
+        }
+
+        photon::thread_join(writer);
+
+        if (iteration_timeout.load()) {
+            deadlock_count.fetch_add(1, std::memory_order_relaxed);
+            LOG_ERROR("Iteration ` deadlocked!", iter);
+        }
+    }
+
+    EXPECT_EQ(0, deadlock_count.load()) 
+        << "Detected " << deadlock_count.load() << " deadlocks in " 
+        << ITERATIONS << " iterations";
+    
+    if (deadlock_count.load() > 0) {
+        LOG_ERROR("Race condition bug confirmed: ` out of ` iterations deadlocked",
+                  deadlock_count.load(), ITERATIONS);
+    }
+}
+
+// Multi-threaded stress test to better trigger the race condition
+TEST(SharedMutex, RaceConditionMultiThreadStress) {
+    photon_lfsextend::shared_mutex mtx;
+    std::atomic<int> deadlock_count{0};
+    constexpr int ITERATIONS = 100;
+    constexpr int NUM_THREADS = 4;
+
+    for (int iter = 0; iter < ITERATIONS; iter++) {
+        std::atomic<bool> writer_acquired{false};
+        std::atomic<bool> iteration_timeout{false};
+        std::atomic<int> phase{0};
+
+        std::vector<std::thread> threads;
+
+        // Thread with initial reader and writer
+        threads.emplace_back([&]() {
+            photon::vcpu_init();
+            DEFER(photon::vcpu_fini());
+
+            // Initial reader
+            mtx.lock_shared();
+            
+            // Start writer
+            auto writer = photon::thread_enable_join(
+                photon::thread_create11([&]() {
+                    phase.store(1, std::memory_order_release);
+                    if (mtx.lock(300 * 1000) == 0) {
+                        writer_acquired.store(true, std::memory_order_release);
+                        mtx.unlock();
+                    } else {
+                        iteration_timeout.store(true, std::memory_order_release);
+                    }
+                }));
+
+            // Wait a bit then unlock - create race window
+            while (phase.load(std::memory_order_acquire) == 0) {
+                photon::thread_yield();
+            }
+            photon::thread_usleep(1000);  // 1ms
+            mtx.unlock_shared();
+            
+            photon::thread_join(writer);
+        });
+
+        // Racer threads - try to grab shared lock during race window
+        for (int t = 0; t < NUM_THREADS; t++) {
+            threads.emplace_back([&]() {
+                photon::vcpu_init();
+                DEFER(photon::vcpu_fini());
+
+                // Wait for writer to start
+                while (phase.load(std::memory_order_acquire) == 0) {
+                    std::this_thread::yield();
+                }
+
+                // Aggressively try to acquire shared lock
+                for (int j = 0; j < 1000 && !writer_acquired.load(std::memory_order_acquire); j++) {
+                    if (mtx.trylock_shared()) {
+                        // Hold briefly then release
+                        mtx.unlock_shared();
+                    }
+                }
+            });
+        }
+
+        for (auto& t : threads) {
+            t.join();
+        }
+
+        if (iteration_timeout.load()) {
+            deadlock_count.fetch_add(1, std::memory_order_relaxed);
+            LOG_ERROR("Multi-thread iteration ` deadlocked!", iter);
+        }
+    }
+
+    EXPECT_EQ(0, deadlock_count.load())
+        << "Multi-thread test: Detected " << deadlock_count.load() 
+        << " deadlocks in " << ITERATIONS << " iterations";
+
+    if (deadlock_count.load() > 0) {
+        LOG_ERROR("Multi-thread race condition bug confirmed: ` out of ` iterations deadlocked",
+                  deadlock_count.load(), ITERATIONS);
+    }
+}
+
+// =============================================================================
 // Main
 // =============================================================================
 
