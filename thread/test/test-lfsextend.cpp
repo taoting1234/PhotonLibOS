@@ -129,6 +129,7 @@ TEST(packaged_task, exception) {
         LOG_INFO("Caught exception: ", e.what());
         exc = true;
     }
+    (void)ret;
     EXPECT_TRUE(exc);
 }
 

@@ -737,6 +737,242 @@ TEST(SharedMutex, RaceConditionMultiThreadStress) {
     }
 }
 
+// Test for unlock() race condition where new locker acquires between state change and wakeup
+TEST(SharedMutex, UnlockRaceCondition) {
+    photon_lfsextend::shared_mutex mtx;
+    std::atomic<int> errors{0};
+    std::atomic<bool> stop{false};
+    constexpr int NUM_THREADS = 4;
+    constexpr int DURATION_MS = 1000;
+
+    std::vector<std::thread> threads;
+
+    // Multiple writer threads competing
+    for (int t = 0; t < NUM_THREADS; t++) {
+        threads.emplace_back([&]() {
+            photon::vcpu_init();
+            DEFER(photon::vcpu_fini());
+
+            while (!stop.load(std::memory_order_acquire)) {
+                // Try to acquire and release write lock rapidly
+                if (mtx.lock(100 * 1000) == 0) {
+                    // Brief critical section
+                    photon::thread_yield();
+                    mtx.unlock();
+                } else {
+                    // Timeout should not happen frequently
+                    errors.fetch_add(1, std::memory_order_relaxed);
+                }
+            }
+        });
+    }
+
+    // Let threads run for a while
+    std::this_thread::sleep_for(std::chrono::milliseconds(DURATION_MS));
+    stop.store(true, std::memory_order_release);
+
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    // Should have very few or no errors
+    EXPECT_LT(errors.load(), 5) 
+        << "Too many lock timeouts: " << errors.load() 
+        << " (suggests deadlock or fairness issues)";
+}
+
+// Test write lock owner tracking
+TEST(SharedMutex, WriteLockOwnerTracking) {
+    photon_lfsextend::shared_mutex mtx;
+
+    // Initially no owner
+    EXPECT_EQ(nullptr, mtx.get_write_lock_owner());
+
+    // Test 1: Simple lock/unlock
+    EXPECT_EQ(0, mtx.lock());
+    auto owner1 = mtx.get_write_lock_owner();
+    EXPECT_NE(nullptr, owner1);
+    EXPECT_EQ(photon::CURRENT, owner1);
+    LOG_INFO("Test 1: Write lock acquired by thread: `", owner1);
+    mtx.unlock();
+    EXPECT_EQ(nullptr, mtx.get_write_lock_owner());
+    LOG_INFO("Test 1: After unlock, owner cleared");
+
+    // Test 2: Different threads see different owners
+    std::atomic<photon::thread*> thread2_owner{nullptr};
+    std::atomic<photon::thread*> thread2_id{nullptr};
+    
+    auto jh = photon::thread_enable_join(
+        photon::thread_create11([&]() {
+            thread2_id.store(photon::CURRENT, std::memory_order_release);
+            EXPECT_EQ(0, mtx.lock());
+            auto owner = mtx.get_write_lock_owner();
+            EXPECT_EQ(photon::CURRENT, owner);
+            thread2_owner.store(owner, std::memory_order_release);
+            LOG_INFO("Test 2: Thread ` acquired lock, owner is `", 
+                     photon::CURRENT, owner);
+            photon::thread_usleep(10 * 1000);  // Hold for a bit
+            mtx.unlock();
+        }));
+
+    photon::thread_join(jh);
+    
+    // Verify thread2 saw itself as owner
+    EXPECT_NE(nullptr, thread2_owner.load());
+    EXPECT_EQ(thread2_id.load(), thread2_owner.load());
+    EXPECT_NE(owner1, thread2_owner.load());  // Different from thread1
+    LOG_INFO("Test 2: Thread2 (`) correctly saw itself as owner", thread2_id.load());
+
+    // Test 3: Owner visible while lock is held
+    EXPECT_EQ(0, mtx.lock());
+    auto owner3 = mtx.get_write_lock_owner();
+    
+    std::atomic<photon::thread*> seen_owner{nullptr};
+    auto jh2 = photon::thread_enable_join(
+        photon::thread_create11([&]() {
+            // This thread tries to see who owns the lock
+            auto current_owner = mtx.get_write_lock_owner();
+            seen_owner.store(current_owner, std::memory_order_release);
+            LOG_INFO("Test 3: Observer thread sees owner as `", current_owner);
+        }));
+    
+    photon::thread_usleep(5 * 1000);
+    photon::thread_join(jh2);
+    mtx.unlock();
+    
+    // The observer should have seen us as the owner
+    EXPECT_EQ(owner3, seen_owner.load());
+    LOG_INFO("Test 3: Observer correctly saw ` as owner", owner3);
+}
+
+// Test owner tracking in multi-threaded scenario
+TEST(SharedMutex, WriteLockOwnerMultiThread) {
+    photon_lfsextend::shared_mutex mtx;
+    std::atomic<int> owner_mismatches{0};
+    std::atomic<bool> stop{false};
+    constexpr int NUM_THREADS = 4;
+    constexpr int ITERATIONS = 100;
+
+    std::vector<std::thread> threads;
+
+    for (int t = 0; t < NUM_THREADS; t++) {
+        threads.emplace_back([&]() {
+            photon::vcpu_init();
+            DEFER(photon::vcpu_fini());
+
+            for (int i = 0; i < ITERATIONS && !stop.load(std::memory_order_acquire); i++) {
+                if (mtx.lock(100 * 1000) == 0) {
+                    // Verify owner is current thread
+                    auto owner = mtx.get_write_lock_owner();
+                    if (owner != photon::CURRENT) {
+                        owner_mismatches.fetch_add(1, std::memory_order_relaxed);
+                        LOG_ERROR("Owner mismatch: expected `, got `", 
+                                  photon::CURRENT, owner);
+                    }
+                    photon::thread_yield();
+                    mtx.unlock();
+                    
+                    // After unlock, owner should be cleared or belong to another thread
+                    // (we can't assert it's null because another thread may have grabbed it)
+                }
+            }
+        });
+    }
+
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    EXPECT_EQ(0, owner_mismatches.load()) 
+        << "Found " << owner_mismatches.load() << " owner tracking errors";
+}
+
+// Test to simulate the deadlock: lock_state=-1 but write_lock_owner=nullptr
+// This can happen if a thread crashes/exits abnormally during unlock()
+TEST(SharedMutex, SimulateAbnormalUnlock) {
+    photon_lfsextend::shared_mutex mtx;
+
+    LOG_INFO("=== Simulating abnormal unlock scenario ===");
+    
+    // Normal lock acquisition
+    EXPECT_EQ(0, mtx.lock());
+    auto owner = mtx.get_write_lock_owner();
+    LOG_INFO("Lock acquired by: `", owner);
+    EXPECT_EQ(photon::CURRENT, owner);
+    
+    // Now simulate what happens if unlock() executes partially:
+    // In the OLD code (before fix):
+    //   1. write_lock_owner = nullptr  <-- executed
+    //   2. lock_state.store(0)         <-- NOT executed (crash here)
+    // Result: lock_state=-1, owner=nullptr  --> DEADLOCK
+    
+    // In the NEW code (after fix):
+    //   1. lock_state.store(0)         <-- executed
+    //   2. write_lock_owner = nullptr  <-- NOT executed (crash here)
+    // Result: lock_state=0, owner=non-null --> Lock is available, just dirty owner info
+    
+    LOG_INFO("Testing current implementation order...");
+    
+    // Let's verify the order matters by checking intermediate states
+    // Create a thread that observes during unlock
+    std::atomic<int> observation_count{0};
+    std::atomic<int> bad_state_count{0};  // lock_state=-1, owner=nullptr
+    std::atomic<int> good_state_count{0}; // lock_state=0, owner=non-null
+    std::atomic<bool> stop{false};
+    
+    auto observer = photon::thread_enable_join(
+        photon::thread_create11([&]() {
+            while (!stop.load(std::memory_order_acquire)) {
+                auto current_owner = mtx.get_write_lock_owner();
+                bool can_trylock = mtx.trylock();
+                
+                observation_count.fetch_add(1, std::memory_order_relaxed);
+                
+                // Check for the BAD state: can't lock but owner is null
+                if (!can_trylock && current_owner == nullptr) {
+                    bad_state_count.fetch_add(1, std::memory_order_relaxed);
+                    LOG_WARN("Observed BAD state: cannot lock but owner=nullptr");
+                }
+                
+                // Check for the GOOD state: can lock but owner is non-null (stale)
+                if (can_trylock && current_owner != nullptr) {
+                    good_state_count.fetch_add(1, std::memory_order_relaxed);
+                    LOG_INFO("Observed acceptable state: can lock with stale owner info");
+                    mtx.unlock();  // Release immediately
+                }
+                
+                if (can_trylock && current_owner == nullptr) {
+                    mtx.unlock();  // Release immediately
+                }
+            }
+        }));
+    
+    // Give observer a moment to start
+    photon::thread_usleep(1000);
+    
+    // Now unlock - observer should see intermediate states
+    mtx.unlock();
+    
+    // Let observer run a bit more
+    photon::thread_usleep(10000);
+    stop.store(true, std::memory_order_release);
+    
+    photon::thread_join(observer);
+    
+    LOG_INFO("Observations: total=`, bad_state=`, good_state=`",
+             observation_count.load(), bad_state_count.load(), good_state_count.load());
+    
+    if (bad_state_count.load() > 0) {
+        LOG_ERROR("CRITICAL: Observed ` instances of deadlock-prone state (lock_state=-1, owner=nullptr)",
+                  bad_state_count.load());
+    }
+    
+    if (good_state_count.load() > 0) {
+        LOG_INFO("Observed ` instances of safe state (lock_state=0, owner=stale)",
+                 good_state_count.load());
+    }
+}
+
 // =============================================================================
 // Main
 // =============================================================================

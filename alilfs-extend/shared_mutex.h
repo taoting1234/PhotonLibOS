@@ -4,6 +4,7 @@
 #include <photon/thread/thread.h>
 
 #include <atomic>
+#include <cassert>
 #include <chrono>
 
 namespace photon_lfsextend {
@@ -25,13 +26,30 @@ protected:
     photon::condition_variable cv_shared;
     photon::condition_variable cv_unique;
     photon::spinlock spin;
+    photon::thread* write_lock_owner{nullptr};
 
-    // Try to wake up waiting threads after unlock.
-    // Must be called with spin lock held.
+    // Must be called with spinlock held.
     void try_wake() {
-        // Prefer waking writers first, then all readers
         if (!cv_unique.notify_one()) {
             cv_shared.notify_all();
+        }
+    }
+
+    // Common blocking lock pattern: fast-path try, then slow-path wait loop.
+    // try_fn must be safe to call both with and without spinlock held.
+    template<typename TryFunc>
+    int do_lock(TryFunc&& try_fn, photon::condition_variable& cv, uint64_t timeout) {
+        if (try_fn()) return 0;
+        photon::Timeout tmo(timeout);
+        SCOPED_LOCK(spin);
+        while (true) {
+            if (try_fn()) return 0;
+            int ret = cv.wait(spin, tmo.timeout());
+            if (ret < 0) {
+                int err = errno;
+                if (err != 0) return -err;
+                // errno == 0 with ret < 0 is unexpected; retry conservatively
+            }
         }
     }
 
@@ -40,107 +58,63 @@ public:
     shared_mutex(const shared_mutex&) = delete;
     shared_mutex& operator=(const shared_mutex&) = delete;
 
-    // Try to acquire exclusive (write) lock without blocking.
-    // Returns true on success, false if lock is held.
     bool trylock() {
         int64_t expected = 0;
-        return lock_state.compare_exchange_strong(
-            expected, WRITE_LOCKED,
-            std::memory_order_acq_rel, std::memory_order_relaxed);
+        if (lock_state.compare_exchange_strong(
+                expected, WRITE_LOCKED,
+                std::memory_order_acq_rel, std::memory_order_relaxed)) {
+            write_lock_owner = photon::CURRENT;
+            return true;
+        }
+        return false;
     }
 
-    // Try to acquire shared (read) lock without blocking.
-    // Lock-free fast path using CAS - no spinlock needed.
-    // Returns true on success, false if write-locked or max readers reached.
     bool trylock_shared() {
         auto state = lock_state.load(std::memory_order_acquire);
         while (state >= 0 && state < MAX_SHARED_LOCK_COUNT) {
             if (lock_state.compare_exchange_weak(
                     state, state + 1,
-                    std::memory_order_acq_rel, std::memory_order_acquire)) {
+                    std::memory_order_acq_rel, std::memory_order_acquire))
                 return true;
-            }
-            // state is updated by compare_exchange_weak on failure
         }
         return false;
     }
 
-    // Acquire exclusive (write) lock, blocking until available.
-    // Returns 0 on success, -ETIMEDOUT on timeout.
     int lock(uint64_t timeout = -1) {
-        // Fast path: try lock-free acquisition first
-        if (trylock()) {
-            return 0;
-        }
-
-        // Slow path: wait with spinlock protection
-        photon::Timeout tmo(timeout);
-        SCOPED_LOCK(spin);
-        while (true) {
-            int64_t expected = 0;
-            if (lock_state.compare_exchange_strong(
-                    expected, WRITE_LOCKED,
-                    std::memory_order_acq_rel, std::memory_order_relaxed)) {
-                return 0;
-            }
-            if (cv_unique.wait(spin, tmo.timeout()) < 0) {
-                return -errno;  // ETIMEDOUT or other errors
-            }
-        }
+        return do_lock([this] { return trylock(); }, cv_unique, timeout);
     }
 
-    // Acquire shared (read) lock, blocking until available.
-    // Returns 0 on success, -ETIMEDOUT on timeout.
     int lock_shared(uint64_t timeout = -1) {
-        // Fast path: lock-free acquisition (common case)
-        if (trylock_shared()) {
-            return 0;
-        }
-
-        // Slow path: wait with spinlock protection
-        photon::Timeout tmo(timeout);
-        SCOPED_LOCK(spin);
-        while (true) {
-            auto state = lock_state.load(std::memory_order_acquire);
-            while (state >= 0 && state < MAX_SHARED_LOCK_COUNT) {
-                if (lock_state.compare_exchange_weak(
-                        state, state + 1,
-                        std::memory_order_acq_rel, std::memory_order_acquire)) {
-                    return 0;
-                }
-            }
-            if (cv_shared.wait(spin, tmo.timeout()) < 0) {
-                return -errno;  // ETIMEDOUT or other errors
-            }
-        }
+        return do_lock([this] { return trylock_shared(); }, cv_shared, timeout);
     }
 
-    // Release exclusive (write) lock.
-    // WARNING: Caller must ensure they actually hold the write lock.
-    // Calling unlock() without holding the write lock is undefined behavior.
     void unlock() {
-        lock_state.store(0, std::memory_order_release);
-        // Wake up waiting threads
         SCOPED_LOCK(spin);
+        assert(lock_state.load(std::memory_order_relaxed) == WRITE_LOCKED);
+        assert(write_lock_owner == photon::CURRENT);
+        write_lock_owner = nullptr;
+        lock_state.store(0, std::memory_order_release);
         try_wake();
     }
 
-    // Release shared (read) lock.
-    // Lock-free using atomic decrement.
-    // WARNING: Caller must ensure they actually hold a read lock.
-    // Calling unlock_shared() without holding a read lock is undefined behavior.
+    // CRITICAL: Must unconditionally call try_wake when prev == 1.
+    // Between fetch_sub and acquiring spinlock, a new reader may sneak in
+    // via the lock-free trylock_shared() fast path. Double-checking state
+    // here would miss that reader and leave waiting writers stuck forever.
     void unlock_shared() {
         auto prev = lock_state.fetch_sub(1, std::memory_order_acq_rel);
-        // If this was the last reader, wake up waiting writers
-        // CRITICAL: Must unconditionally wake without double-checking state.
-        // Race scenario: after fetch_sub but before acquiring spinlock,
-        // another thread may acquire shared lock via trylock_shared().
-        // If we check state again and see readers, we won't wake waiters,
-        // causing writer deadlock since the new reader used lock-free path.
+        assert(prev > 0);  // must hold a shared lock; prev<=0 indicates misuse
         if (prev == 1) {
             SCOPED_LOCK(spin);
             try_wake();
         }
+    }
+
+    // Debug snapshot; may be stale immediately after return.
+    photon::thread* get_write_lock_owner() const {
+        if (lock_state.load(std::memory_order_acquire) == WRITE_LOCKED)
+            return write_lock_owner;
+        return nullptr;
     }
 };
 
