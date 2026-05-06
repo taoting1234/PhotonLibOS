@@ -87,7 +87,7 @@ public:
 
     ssize_t read(void *buf, size_t count) override;
     ssize_t readv(const struct iovec *iov, int iovcnt) override;
-    ssize_t preadv(const struct iovec *iov, int iovcnt, off_t off) override;
+    ssize_t preadv(const struct iovec *iov, int iovcnt, size_t off) override;
     ssize_t write(const void *buf, size_t count) override;
     ssize_t writev(const struct iovec *iov, int iovcnt) override;
     ssize_t write_stream(IStream *stream, size_t size_limit = -1);

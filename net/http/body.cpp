@@ -116,7 +116,7 @@ public:
         return 0;
     }
 
-    ssize_t preadv(const struct iovec *iov, int iovcnt, off_t off) override {
+    ssize_t preadv(const struct iovec *iov, int iovcnt, size_t off) override {
         int ret = 0;
         ret = skip_read(off);
         if (ret != 0) {
