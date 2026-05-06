@@ -53,10 +53,6 @@ namespace fs
     class IFileSystem;
     class IFile : public IStream {
     public:
-#ifdef __clang__
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Woverloaded-virtual"
-#endif
         virtual IFileSystem* filesystem()=0;
         virtual ssize_t pread(void *buf, size_t count, off_t offset)=0;
         virtual ssize_t preadv(const struct iovec *iov, int iovcnt, off_t offset)=0;
@@ -203,9 +199,6 @@ namespace fs
         bool is_readf(FuncPIOCV2 f) { return f == _and_preadcv2(); }
         bool is_writef(FuncPIOCV2 f) { return f == _and_pwritecv2(); }
     };
-#ifdef __clang__
-#pragma clang diagnostic pop
-#endif
 
     class IFileXAttr {
     public:

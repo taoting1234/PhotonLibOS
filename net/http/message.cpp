@@ -161,7 +161,7 @@ ssize_t Message::readv(const struct iovec *iov, int iovcnt) {
     return m_body_stream->readv(iov, iovcnt);
 }
 
-ssize_t Message::preadv(const struct iovec *iov, int iovcnt, size_t off) {
+ssize_t Message::preadv(const struct iovec *iov, int iovcnt, off_t off) {
     if (!m_body_stream)
         LOG_ERROR_RETURN(EIO, -1, "body not readable");
     return m_body_stream->preadv(iov, iovcnt, off);
