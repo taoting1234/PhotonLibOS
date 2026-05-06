@@ -53,6 +53,8 @@ namespace fs
     class IFileSystem;
     class IFile : public IStream {
     public:
+        using IStream::preadv;
+
         virtual IFileSystem* filesystem()=0;
         virtual ssize_t pread(void *buf, size_t count, off_t offset)=0;
         virtual ssize_t preadv(const struct iovec *iov, int iovcnt, off_t offset)=0;

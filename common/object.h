@@ -19,5 +19,8 @@ limitations under the License.
 class Object
 {
 public:
+    Object() = default;
+    Object(const Object&) = default;
+    Object& operator=(const Object&) = default;
     virtual ~Object() { }
 };
