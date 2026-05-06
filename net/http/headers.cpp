@@ -141,12 +141,19 @@ HeadersBase::KV* HeadersBase::kv_add_sort(KV kv) {
     if ((char*)(begin - 1) <= m_buf + m_buf_size)
         LOG_ERROR_RETURN(ENOBUFS, nullptr, "no buffer");
     auto it = std::lower_bound(begin, kv_end(), kv, HA(this));
-#ifndef __clang__
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnontrivial-memcall"
+#endif
+#ifdef __GNUC__
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wclass-memaccess"
 #endif
     memmove(begin - 1, begin, sizeof(KV) * (it - begin));
-#ifndef __clang__
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
+#ifdef __GNUC__
 #pragma GCC diagnostic pop
 #endif
     m_kv_size++;

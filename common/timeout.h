@@ -40,6 +40,7 @@ protected:
 public:
     Timeout() = default; // never timeout
     Timeout(uint64_t x)              { m_expiration = x ? sat_add(now, x) : 0; }
+    Timeout(const Timeout&) = default;
     uint64_t timeout(uint64_t x)     { return m_expiration = sat_add(now, x); }
     uint64_t timeout() const         { return sat_sub(m_expiration, now); }
     operator uint64_t() const        { return timeout(); }
