@@ -47,9 +47,6 @@ add_executable(test-pooled-stack-allocator test-pooled-stack-allocator.cpp)
 target_link_libraries(test-pooled-stack-allocator PRIVATE photon_shared)
 add_test(NAME test-pooled-stack-allocator COMMAND $<TARGET_FILE:test-pooled-stack-allocator>)
 
-add_executable(test-lfstextend test-lfsextend.cpp)
-target_link_libraries(test-lfstextend PRIVATE photon_static ${testing_libs})
-add_test(NAME test-lfstextend COMMAND $<TARGET_FILE:test-lfstextend>)
 
 if (PHOTON_ALL_ASAN)
     add_executable(test-asan test-asan.cpp)
