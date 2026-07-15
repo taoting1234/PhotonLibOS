@@ -621,10 +621,17 @@ class RingChannel : public QueueType {
 protected:
     photon::semaphore queue_sem;
     std::atomic<uint64_t> idler{0};
+    photon::semaphore send_sem;
+    std::atomic<uint64_t> send_waiters{0};
     uint64_t default_yield_turn = -1UL;
     uint64_t default_yield_usec = 1024;
 
     using T = decltype(std::declval<QueueType>().recv());
+
+    void notify_senders() {
+        if (send_waiters.load(std::memory_order_seq_cst))
+            send_sem.signal(1);
+    }
 
 public:
     using QueueType::empty;
@@ -641,15 +648,57 @@ public:
 
     template <typename Pause = ThreadPause>
     void send(const T& x) {
-        while (!push(x)) {
-            Pause::pause();
+        if (std::is_same<Pause, PhotonPause>::value) {
+            if (!push(x)) {
+                send_waiters.fetch_add(1, std::memory_order_acq_rel);
+                DEFER(send_waiters.fetch_sub(1, std::memory_order_acq_rel));
+                Timeout yield_timeout(default_yield_usec);
+                uint64_t yield_turn = default_yield_turn;
+                while (!push(x)) {
+                    if (yield_turn > 0 && !yield_timeout.expired()) {
+                        yield_turn--;
+                        photon::thread_yield();
+                    } else {
+                        // wait for 100ms
+                        send_sem.wait(1, 100UL * 1000);
+                        yield_turn = default_yield_turn;
+                        yield_timeout.timeout(default_yield_usec);
+                    }
+                }
+            }
+        } else if (std::is_same<Pause, ThreadPause>::value) {
+            // std-thread variant: no photon semaphore, use sleep backoff
+            if (!push(x)) {
+                uint64_t yield_turn = default_yield_turn;
+                auto deadline = std::chrono::steady_clock::now() +
+                    std::chrono::microseconds(default_yield_usec);
+                while (!push(x)) {
+                    if (yield_turn > 0 &&
+                        std::chrono::steady_clock::now() < deadline) {
+                        yield_turn--;
+                        std::this_thread::yield();
+                    } else {
+                        std::this_thread::sleep_for(
+                            std::chrono::microseconds(default_yield_usec));
+                        yield_turn = default_yield_turn;
+                        deadline = std::chrono::steady_clock::now() +
+                            std::chrono::microseconds(default_yield_usec);
+                    }
+                }
+            }
+        } else {
+            while (!push(x)) {
+                Pause::pause();
+            }
         }
-        // meke sure that idler load happends after push work done.
         if (idler.load(std::memory_order_seq_cst)) queue_sem.signal(1);
     }
     T recv(uint64_t max_yield_turn, uint64_t max_yield_usec) {
         T x;
-        if (pop(x)) return x;
+        if (pop(x)) {
+            notify_senders();
+            return x;
+        }
         // yield once if failed, so photon::now will be update
         photon::thread_yield();
         idler.fetch_add(1, std::memory_order_acq_rel);
@@ -668,6 +717,7 @@ public:
                 yield_timeout.timeout(max_yield_usec);
             }
         }
+        notify_senders();
         return x;
     }
     T recv() { return recv(default_yield_turn, default_yield_usec); }
