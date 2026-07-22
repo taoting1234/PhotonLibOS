@@ -370,6 +370,69 @@ class PhotonThread:
     
     def stack_ptr(self):
         return read_ptr(self.addr + THREAD_OFFSETS['stack_ptr'])
+
+    def buf(self):
+        """Return stack base address (lowest address of allocated region)."""
+        return read_ptr(self.addr + THREAD_OFFSETS['buf'])
+
+    def stack_size(self):
+        """Return total stack size in bytes."""
+        return read_u64(self.addr + THREAD_OFFSETS['stack_size'])
+
+    def stack_high_water_mark(self):
+        """
+        Scan stack memory from bottom (above guard page) upward to find
+        the first non-zero page. This is the high-water mark — the deepest
+        the stack ever grew.
+
+        Returns (hwm_bytes, stack_size_bytes), or (0, 0) on error.
+        hwm_bytes = bytes used at deepest point (from stack top to hwm address).
+
+        Relies on mmap zero-fill: fresh stack pages are all zeros,
+        used pages become non-zero. Works with default_photon_thread_stack_alloc.
+        For pooled_stack_alloc, reuse without madvise may leave stale data.
+        """
+        base = self.buf()
+        size = self.stack_size()
+        if base == 0 or size == 0:
+            return 0, 0
+
+        scan_start = base + 4096  # skip guard page
+        scan_end = base + size
+
+        try:
+            inferior = gdb.selected_inferior()
+        except:
+            return 0, 0
+
+        # Scan in 64KB chunks for speed; refine to 4KB on first non-zero hit
+        chunk_size = 64 * 1024
+        page_size = 4096
+        hwm_addr = 0
+
+        for addr in range(scan_start, scan_end, chunk_size):
+            chunk = min(chunk_size, scan_end - addr)
+            try:
+                mem = bytes(inferior.read_memory(addr, chunk))
+            except gdb.MemoryError:
+                continue
+            except:
+                return 0, 0
+            if mem != b'\x00' * chunk:
+                # Found non-zero chunk; refine to page granularity
+                for off in range(0, chunk, page_size):
+                    page = mem[off:off + page_size]
+                    if page != b'\x00' * len(page):
+                        hwm_addr = addr + off
+                        break
+                if hwm_addr:
+                    break
+
+        if hwm_addr == 0:
+            hwm_addr = scan_start
+
+        hwm_bytes = scan_end - hwm_addr
+        return hwm_bytes, size
     
     def state(self):
         return read_u16(self.addr + THREAD_OFFSETS['state'])
@@ -1107,6 +1170,12 @@ class PhotonLs(gdb.Command):
             if 'gdb_thread' in t and 'vcpu_addr' in t:
                 extra_info += f" vCPU {t['gdb_thread']} ({t['vcpu_addr']:#x})"
             
+            # Stack high-water mark
+            th = PhotonThread(addr)
+            hwm, ssize = th.stack_high_water_mark()
+            if hwm > 0:
+                extra_info += f" stack:{hwm // 1024}K/{ssize // (1024*1024)}M"
+            
             # Frame info
             frame_str = format_frame_brief(rip)
             if state == 'CURRENT' and rip == 0:
@@ -1204,6 +1273,12 @@ class PhotonPs(gdb.Command):
             extra_info = ""
             if 'gdb_thread' in t and 'vcpu_addr' in t:
                 extra_info += f" vCPU {t['gdb_thread']} ({t['vcpu_addr']:#x})"
+            
+            # Stack high-water mark
+            th = PhotonThread(t['addr'])
+            hwm, ssize = th.stack_high_water_mark()
+            if hwm > 0:
+                extra_info += f" stack:{hwm // 1024}K/{ssize // (1024*1024)}M"
             
             # Header like GDB's thread switch message
             print(f"\nThread {i}, {t['addr']:#x} ({color}{state}{bcolors.ENDC}){extra_info}")
